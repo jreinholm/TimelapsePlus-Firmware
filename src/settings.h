@@ -86,6 +86,7 @@ struct settings
     uint8_t menuWrap;
     uint8_t extendedRamp;
     uint8_t pad[26];
+    char test[13];
 };
 
 void settings_load(void);

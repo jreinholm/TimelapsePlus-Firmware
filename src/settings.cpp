@@ -124,6 +124,7 @@ void settings_default()
     conf.arbitraryBulb = 0;
     conf.menuWrap = 1;
     conf.extendedRamp = 0;
+    strcpy((char*)conf.test, "Test       ");
 
     settings_save();
     settings_load();
