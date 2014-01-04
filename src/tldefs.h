@@ -15,3 +15,8 @@
 #define BLANK_STR           const_cast<char *>("")
 #define STR(thestring)      const_cast<char *>(thestring)               // use this macro for strings that should not be localized (debug code for example)
 
+#undef PROGMEM
+#define PROGMEM __attribute__(( section(".progmem.data") ))
+
+#undef PSTR
+#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
