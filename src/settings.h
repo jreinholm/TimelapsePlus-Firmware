@@ -48,12 +48,6 @@
 #define AUX_MODE_DOLLY 1
 #define AUX_MODE_IR 2
 
-#undef PROGMEM
-#define PROGMEM __attribute__(( section(".progmem.data") ))
-
-#undef PSTR
-#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
-
 struct settings
 {
     uint8_t cameraFPS;
