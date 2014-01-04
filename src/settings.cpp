@@ -134,17 +134,13 @@ void settings_default()
     conf.arbitraryBulb = 0;
     conf.menuWrap = 1;
     conf.extendedRamp = 0;
-<<<<<<< HEAD
     conf.lightIntegrationMinutes = 10;
     conf.brampGap = 6;
     conf.brampRateMax = 16;
     conf.brampRateMin = 4;
     conf.brampRateFactor = 20;
     conf.nikonUSB = 0;
-=======
     strcpy((char*)conf.test, "Test       ");
->>>>>>> merged
-
     settings_save();
     settings_load();
 }
