@@ -84,7 +84,6 @@ struct settings
     uint8_t arbitraryBulb;
     uint8_t menuWrap;
     uint8_t extendedRamp;
-<<<<<<< HEAD
     uint16_t dollyPulse2;
     uint8_t lightIntegrationMinutes;
     uint16_t brampGap;
@@ -93,10 +92,7 @@ struct settings
     uint8_t brampRateFactor;
     uint8_t nikonUSB;
     uint8_t pad[15];
-=======
-    uint8_t pad[26];
     char test[13];
->>>>>>> merged
 };
 
 void settings_load(void);
