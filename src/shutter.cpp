@@ -114,7 +114,7 @@ void shutter::setDefault()
     current.Name[7] = '\0';
     current.Delay = 5;
     current.Photos = 10;
-    current.Gap = 20;
+    current.Gap = 1;   //J.R. 10-28-2014
     current.GapMin = BRAMP_INTERVAL_MIN;
     current.IntervalMode = INTERVAL_MODE_FIXED;
     current.Exps = 3;
@@ -499,7 +499,8 @@ char shutter::task()
         pausing = 0;
         if(current.Mode & RAMP)
         {
-            uint32_t tmp = (uint32_t)current.Duration * 10 * 60;  //J.R.
+			//uint32_t tmp = (uint32_t)current.Duration * 60 * 10;			
+            uint32_t tmp = (uint32_t)current.Duration;  //J.R. 10-6-14
             tmp /= (uint32_t) current.Gap;
             current.Photos = (uint16_t) tmp;
         }
@@ -679,7 +680,7 @@ char shutter::task()
             exps++;
             capture();
             
-            if(status.interval <= settings_mirror_up_time && !camera.ready) 
+            if(status.interval <= (settings_mirror_up_time/600.0) && !camera.ready) //J.R. 10-28-2014
                 shutter_half(); // Mirror Up //
 
             run_state = RUN_NEXT;
@@ -891,7 +892,7 @@ char shutter::task()
                     }
 //####################################################
 
-                    status.rampStops += ((float)rampRate / (3600.0 / 3)) * ((float)status.interval / 10.0);
+                    status.rampStops += ((float)rampRate / (60.0 / 3)) * ((float)status.interval * 60.0); //J.R. 10-28-2014
 
                     if(status.rampStops >= status.rampMax)
                     {
@@ -1245,7 +1246,7 @@ char shutter::task()
 
             _delay_ms(50);
 
-            if(status.interval <= settings_mirror_up_time && !camera.ready) 
+            if(status.interval <= (settings_mirror_up_time / 600) && !camera.ready) //J.R. 10-28-2014 
                 shutter_half(); // Mirror Up //
 
             run_state = RUN_NEXT;
@@ -1344,7 +1345,7 @@ char shutter::task()
         }
         uint32_t cms = clock.Ms();
 
-        if((cms - last_photo_ms) / 100 >= status.interval)
+        if((cms - last_photo_ms) / 60000 >= status.interval)  //J.R. 10-28-2014
         {
             last_photo_ms = cms;
             clock.tare();
@@ -1352,8 +1353,8 @@ char shutter::task()
         } 
         else
         {
-            status.nextPhoto = (unsigned int) ((status.interval - (cms - last_photo_ms) / 100) / 10);
-            if((cms - last_photo_ms) / 100 + (uint32_t)settings_mirror_up_time * 10 >= status.interval)
+            status.nextPhoto = (unsigned int) (((status.interval * 600.0) - (cms - last_photo_ms) / 100) / 10);  //J.R. 10-6-14
+            if((cms - last_photo_ms) / 100 + (uint32_t)settings_mirror_up_time * 10 >= (status.interval * 600.0))
             {
                 // Mirror Up //
                 if(!camera.ready) shutter_half(); // Don't do half-press if the camera is connected by USB
@@ -1552,7 +1553,7 @@ uint8_t stopName(char name[8], uint8_t stop)
 
 void calcBulbMax()
 {
-    BulbMax = (timer.current.Gap - BRAMP_GAP_PADDING) * 100;
+    BulbMax = ((timer.current.Gap * 60) - BRAMP_GAP_PADDING) * 1000; //J.R. 10-28-2014 
 
     DEBUG(PSTR("BMAX1: "));
     DEBUG(BulbMax);

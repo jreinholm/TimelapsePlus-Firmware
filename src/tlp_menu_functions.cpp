@@ -129,14 +129,14 @@ void updateConditions()
 	rampAperture = (conf.brampMode & BRAMP_MODE_APERTURE && camera.supports.aperture);
 	rampTargetCustom = (timer.current.nightMode == BRAMP_TARGET_CUSTOM && brampAuto);
 	cameraMakeNikon = conf.cameraMake == NIKON;
-	if(modeRamp && timer.current.Gap < BRAMP_INTERVAL_MIN)
+	if(modeRamp && ((timer.current.Gap * 600.0) < BRAMP_INTERVAL_MIN)) 		//J.R.  9-15-14
 	{
-		timer.current.Gap = BRAMP_INTERVAL_MIN;
+		timer.current.Gap = BRAMP_INTERVAL_MIN / 600.0; 						//J.R.  9-15-14
 		menu.refresh();
 	}
-	if(modeRamp && (timer.current.GapMin < BRAMP_INTERVAL_VAR_MIN))
+	if(modeRamp && ((timer.current.GapMin * 600.0) < BRAMP_INTERVAL_VAR_MIN)) //J.R.  9-15-14 
 	{
-		timer.current.GapMin = BRAMP_INTERVAL_VAR_MIN;
+		timer.current.GapMin = BRAMP_INTERVAL_VAR_MIN / 600.0;				//J.R.  9-15-14
 		menu.refresh();
 	}
 }
@@ -2879,14 +2879,14 @@ volatile char bramp_monitor(char key, char first)
 		#define INT_BAR_BOTTOM 40
 		#define INT_BAR_SPAN (INT_BAR_BOTTOM - INT_BAR_TOP)
 
-		uint8_t top = INT_BAR_BOTTOM - (uint8_t)((float)INT_BAR_SPAN / ((float)timer.status.interval / (float)(timer.status.bulbLength / 100))); // Exposure Bar
+		uint8_t top = INT_BAR_BOTTOM - (uint8_t)((float)INT_BAR_SPAN / (((float)timer.status.interval * 600.0) / (float)(timer.status.bulbLength / 100))); // Exposure Bar   J.R. 10-28-14
 
 		lcd.drawLine(56, top, 56, 41);
 		lcd.drawLine(57, top, 57, 41);
 		lcd.drawLine(58, top, 58, 41);
 
 		// Interval Position //
-		top = INT_BAR_BOTTOM - (uint8_t)((float)INT_BAR_SPAN / ((float)timer.status.interval / (float)((clock.Ms() - timer.last_photo_ms) / 100))); // Position Markers
+		top = INT_BAR_BOTTOM - (uint8_t)((float)INT_BAR_SPAN / (((float)timer.status.interval * 600.0) / (float)((clock.Ms() - timer.last_photo_ms) / 100))); // Position Markers  J.R. 10-28-14
 
 		if(timer.running)
 		{

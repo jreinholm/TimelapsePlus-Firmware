@@ -988,8 +988,7 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                d[4] = c % 10;
                break;
                
-           case 'H':  	  //  Added case for hh:mm time frame - J.R.
-
+           case 'I':	  //  J.R. - 11-12-2014
                // minutes //
                c = m % 60;
                m -= (unsigned int)c; m /= 60;
@@ -998,10 +997,27 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                d[1] = c;
 
                // hours //
-               c = m % 100;
+               c = m % 100;   		//J.R. 11/12/2014
                d[2] = c % 10;
                c -= d[2]; c /= 10;
-               d[3] = c;
+               d[3] = c;             
+               break;            
+           
+           case 'H':  	  //  Added case for hhh:mm time frame - J.R. 11-12-2014
+               // minutes //
+               c = m % 60;
+               m -= (unsigned int)c; m /= 60;
+               d[0] = c % 10;
+               c -= d[0]; c /= 10;
+               d[1] = c;
+
+               // hours //
+               c = m % 1000;   		//J.R. 11/12/2014
+               d[2] = c % 10;
+               c -= d[2]; c /= 10;
+               d[3] = c % 10;		//J.R. 11/12/2014
+               c -= d[3]; c /= 10;
+               d[4] = c;               
                break;              
 
            default:
@@ -1046,6 +1062,7 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                 lcd->drawBox(68 - 3 * 16 - 3, 20, 68 - 3 * 16 - 2, 22);
                 break;
                 
+           case 'I': // J.R. 10-6-14
            case 'H': // Time (hours)//
                 lcd->drawBox(68 - 1 * 16 - 3, 12, 68 - 1 * 16 - 2, 14); // Colon (:) //
                 lcd->drawBox(68 - 1 * 16 - 3, 20, 68 - 1 * 16 - 2, 22);
@@ -1074,7 +1091,13 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                    t = 9;
                break;
                
-           case 'H':		//  Added case for hh:mm
+           case 'H':		//  J.R. 10-6-14
+               if(i == 1) 	//  J.R. 11-12-2014
+                   t = 5;
+               else				   
+                   t = 9;	//  J.R. 11-12-2014
+               break;                    
+           case 'I':		//  Added case for hh:mm
 				   l = 4;
                if(i == 1) 
                    t = 5;
@@ -1184,7 +1207,13 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                DEBUG_NL();
                break;
                
-		   case 'H':		//  Added case for hh:mm
+		   case 'H':		// J.R. 11-12-2014
+                m += (d[4] * 100 + d[3] * 10 + d[2]) * 60; // hours
+                m += d[1] * 10 + d[0]; // minutes
+                DEBUG(m);
+                DEBUG_NL();
+                break;		   
+		   case 'I':		//  Added case for hh:mm
                 m += (d[3] * 10 + d[2]) * 60; // hours
                 m += d[1] * 10 + d[0]; // minutes
                 DEBUG(m);

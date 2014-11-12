@@ -33,9 +33,9 @@
 #define BRAMP_METHOD_AUTO 2
 
 // in 1/10 seconds
-#define BRAMP_GAP_PADDING (conf.brampGap * 10)
-#define BRAMP_INTERVAL_MIN (BRAMP_GAP_PADDING + 20)
-#define BRAMP_INTERVAL_VAR_MIN 20
+#define BRAMP_GAP_PADDING (conf.brampGap)				//J.R. 10-28-2014
+#define BRAMP_INTERVAL_MIN 1  							//J.R. 10-28-2014
+#define BRAMP_INTERVAL_VAR_MIN 1  						//J.R. 10-28-2014
 
 #define BRAMP_RATE_MAX ((float)conf.brampRateMax)
 #define BRAMP_RATE_MIN ((float)conf.brampRateMin)
@@ -127,7 +127,7 @@ struct timer_status
     uint16_t bulbLength;
     int8_t rampMax;
     int8_t rampMin;
-    unsigned int interval;
+    unsigned int interval;  //J.R. 9-15-14
     float rampTarget;
     int8_t nightTarget;
 };

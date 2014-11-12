@@ -8,7 +8,8 @@
  *
  */
 
-const char STR_TIME_HOURS[]PROGMEM = "hh:mm";
+const char STR_TIME_HOURS[]PROGMEM = "hh:mm";		//J.R. 11/12/2014
+const char STR_TIME_ADDHOURS[]PROGMEM = "hhh:mm";   //J.R. 11/12/2014
 const char STR_TIME[]PROGMEM = "h:mm:ss";
 const char STR_PHOTOS[]PROGMEM = "0 for inf.";
 const char STR_TIME_TENTHS[]PROGMEM = "mm:ss.s";
@@ -294,12 +295,12 @@ const menu_item menu_timelapse[]PROGMEM =
     { "Mode       *", 'S', (void*)settings_timer_mode, (void*)&timer.current.Mode, 0, 0 },
     { "Method     *", 'S', (void*)settings_bramp_method, (void*)&timer.current.brampMethod, 0, (void*)&modeRamp },
     { "Delay      T", 'E', (void*)&timer.current.Delay, (void*)STR_TIME, 0, 0 },
-    { "Length     H", 'E', (void*)&timer.current.Duration, (void*)STR_TIME_HOURS, 0, (void*)&modeRamp },
+    { "Length     H", 'E', (void*)&timer.current.Duration, (void*)STR_TIME_ADDHOURS, 0, (void*)&modeRamp },
     { "Frames     U", 'E', (void*)&timer.current.Photos, (void*)STR_PHOTOS, 0, (void*)&modeNoRamp },
     { "Intrvl Mode ", 'S', (void*)settings_interval_mode, (void*)&timer.current.IntervalMode, 0, (void*)&modeRamp },
-    { "Intrvl     F", 'E', (void*)&timer.current.Gap, (void*)STR_TIME_TENTHS, 0, (void*)&showGap },
-    { "Int Max    F", 'E', (void*)&timer.current.Gap, (void*)STR_TIME_TENTHS, 0, (void*)&showIntervalMaxMin },
-    { "Int Min    F", 'E', (void*)&timer.current.GapMin, (void*)STR_TIME_TENTHS, 0, (void*)&showIntervalMaxMin },
+    { "Intrvl     I", 'E', (void*)&timer.current.Gap, (void*)STR_TIME_HOURS, 0, (void*)&showGap },						//J.R. 11/12/2014
+    { "Int Max    I", 'E', (void*)&timer.current.Gap, (void*)STR_TIME_HOURS, 0, (void*)&showIntervalMaxMin },
+    { "Int Min    I", 'E', (void*)&timer.current.GapMin, (void*)STR_TIME_HOURS, 0, (void*)&showIntervalMaxMin },
     { "HDR Exp's  +", 'D', (void*)&dyn_hdr_exps,    (void*)&timer.current.Exps, 0, (void*)&modeHDR },
     { "Mid Tv     +", 'D', (void*)&dyn_hdr_tv,            (void*)&timer.current.Exp, 0, (void*)&modeHDR },
     { "Tv         +", 'D', (void*)&dyn_tv,            (void*)&timer.current.Exp, 0, (void*)&modeStandardExp },
