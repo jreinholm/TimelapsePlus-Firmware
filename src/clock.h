@@ -11,6 +11,8 @@
 #define CLOCK_TUNE 134
 //#define CLOCK_TUNE 8
 
+#define CLOCK_IN_QUEUE 3
+
 class Clock
 {
 public:
@@ -34,20 +36,20 @@ public:
     uint8_t sleepOk;
     uint8_t sleeping;
 
-    uint8_t jobRunning;
+    uint8_t bulbRunning, usingSync;
 
-    void job(void (*startFunction)(), void (*endFunction)(), uint32_t duration);
-    void cancelJob(void);
+    void bulb(uint32_t duration);
+    void cancelBulb(void);
     void in(uint16_t stime, void (*func)());
 
 private:
-    void (*jobStart)();
-    void (*jobComplete)();
-    uint32_t jobDuration;
-    uint8_t newJob;
+    uint32_t bulbDuration;
+    uint32_t bulbDurationPCsync;
+    uint8_t newBulb;
 
-    uint16_t inTime;
-    void (*inFunction)();
+    uint8_t inIndex;
+    uint16_t inTime[CLOCK_IN_QUEUE];
+    void (*inFunction[CLOCK_IN_QUEUE])();
 
     uint8_t sleepWasOk;
     uint16_t light_time;

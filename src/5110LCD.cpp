@@ -162,7 +162,7 @@ void LCD::writeUint(unsigned char x, unsigned char y, unsigned int n)
  *
  ******************************************************************/
 
-unsigned char LCD::writeNumber(unsigned char x, unsigned char y, unsigned int n, unsigned char mode, unsigned char justification)
+unsigned char LCD::writeNumber(unsigned char x, unsigned char y, unsigned int n, unsigned char mode, unsigned char justification, bool minus)
 {
     if(justification == 'R')
     {
@@ -197,6 +197,11 @@ unsigned char LCD::writeNumber(unsigned char x, unsigned char y, unsigned int n,
             justification++;
         }
         while (n > 0);
+        
+        if(minus)   //J.R.
+        {
+        writeChar(x, y, '-'); x -= 6; justification++;
+		}      
         break;
         
     case 'T': // Time (hh:mm:ss) //
@@ -240,6 +245,39 @@ unsigned char LCD::writeNumber(unsigned char x, unsigned char y, unsigned int n,
             }
             break;
         }
+        
+    case 'H': // Time (hh:mm) //
+        {
+            char b, p;
+            unsigned int c;
+
+            // minutes //
+            c = n % 60;
+            n -= c; n /= 60;
+            b = c % 10;
+            writeChar(x, y, '0' + b); x -= 6; justification++;
+            c -= b; c /= 10;
+            b = c; if(b) p = justification;
+            writeChar(x, y, '0' + b); x -= 6; justification++;
+
+            writeChar(x, y, ':'); x -= 6; justification++;
+            p = justification;
+
+            // hours //
+            c = n % 100;
+            b = c % 10; if(b) p = justification;
+            writeChar(x, y, '0' + b); x -= 6; justification++;
+            c -= b; c /= 10;
+            b = c; if(b) p = justification;
+            writeChar(x, y, '0' + b); x -= 6; justification++;
+           
+            if(p)
+            {
+                eraseBox(x, y, x + (justification - p) * 6, y + 7);
+                justification -= p;
+            }
+            break;
+        }       
         
     case 'F': // Fractional time (mm:ss.s) //
         {
@@ -417,6 +455,10 @@ char LCD::measureCharTiny(char c)
     {
         return 1;
     } 
+    else if(c == ':')
+    {
+        return 1;
+    } 
     else if(c == '+')
     {
         return 3;
@@ -464,6 +506,13 @@ unsigned char LCD::writeCharTiny(unsigned char x, unsigned char y, unsigned char
     if(c == '.')
     {
         setPixel(x, y + 4);
+        return 1;
+    }
+
+    if(c == ':')
+    {
+        setPixel(x, y + 1);
+        setPixel(x, y + 3);
         return 1;
     }
 
@@ -753,7 +802,7 @@ void LCD::eraseBox(unsigned char x1, unsigned char y1, unsigned char x2, unsigne
  *
  *
  ******************************************************************/
-
+/*
 void LCD::drawBMP(unsigned char x, unsigned char y, unsigned char *pBMP)
 {
     unsigned char i, j, y2, b, w, h;
@@ -795,14 +844,14 @@ void LCD::drawBMP(unsigned char x, unsigned char y, unsigned char *pBMP)
         }
     }
 }
-
+*/
 /******************************************************************
  *
  *   LCD::drawCircle
  *
  *
  ******************************************************************/
-
+/*
 void LCD::drawCircle(unsigned char x, unsigned char y, unsigned char r)
 {
     char x1, y1, p;
@@ -840,7 +889,7 @@ void LCD::drawCircle(unsigned char x, unsigned char y, unsigned char r)
         setPixel(x - y1, y + x1);
     }
 }
-
+*/
 /******************************************************************
  *
  *   LCD::swapBits

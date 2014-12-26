@@ -1,4 +1,3 @@
-
 #include <avr/io.h>
 #include <avr/wdt.h>
 #include <util/delay.h>
@@ -24,7 +23,7 @@
 
 extern LCD lcd;
 extern Clock clock;
-extern settings conf;
+extern settings_t conf;
 
 Light::Light()
 {
@@ -32,7 +31,8 @@ Light::Light()
 	TWI_Master_Initialise();
 	lastSeconds = 0;
   initialized = 0;
-  darkPoint = BRAMP_TARGET_AUTO;
+  integrationActive = false;
+  lockedSlope = 0.0;
 }
 
 uint16_t Light::readRaw()
@@ -102,7 +102,8 @@ void Light::stop()
    lcd.backlight(255);
    lastSeconds = 0;
    paused = 0;
-   darkPoint = BRAMP_TARGET_AUTO;
+   lockedSlope = 0.0;
+   integrationActive = false;
 }
 
 void Light::setRange(uint8_t range)
@@ -137,43 +138,16 @@ float Light::readEv()
 
     if(!initialized) return 0;
 
-    if(paused) return lastReading;
+    if(paused || skipTask) return lastReading;
 
     lux = readLux();
-    //lux *= 2^5;
-	  method = 0;
-    //int8_t ev = (int8_t)ilog2(lux); 
-    float ev = libc_log2(lux);
 
-    //DEBUG(STR("LUX = "));
-    //DEBUG(lux);
-    //DEBUG(STR(", EVi = "));
-    //DEBUG(ev);
-    //DEBUG(STR(", EVf = "));
-    //DEBUG(evf);
-    //DEBUG_NL();
+	  method = 0;
+
+    float ev = libc_log2(lux);
 
     ev *= 3;
     ev += 30;
-    //if(ev <= ANALOG_THRESHOLD)
-    //{
-    //	uint16_t tmp = hardware_readLight(2);
-    //  if(offset == OFFSET_UNSET)
-    //  {
-    //    offset = tmp;
-    //  }
-    //  tmp = tmp + ANALOG_THRESHOLD - offset;
-    //	if(tmp <= ANALOG_THRESHOLD)
-    //	{
-    //    ev = tmp;
-    //    if(ev < 6) ev = 6;
-	  //  	method = 1;
-    //	}
-    //}
-    //if(method == 0) // if analog wasn't used
-    //{
-    //  offset = OFFSET_UNSET;
-    //}
 
     if(filterIndex < 0) // initialize buffer
     {
@@ -186,63 +160,7 @@ float Light::readEv()
       filter[filterIndex] = ev;
     }
 
-    float tmpFilter[FILTER_LENGTH];
-    memcpy(tmpFilter, filter, sizeof(filter));
-    uint8_t num_swaps = 1; // sort the filter array
-    while (num_swaps > 0) 
-    { 
-       num_swaps = 0; 
-       for (uint8_t i = 1; i < FILTER_LENGTH; i++) 
-       { 
-          if(tmpFilter[i - 1] > tmpFilter[i]) 
-          {
-            float temp = tmpFilter[i];
-            tmpFilter[i] = tmpFilter[i - 1];
-            tmpFilter[i - 1] = temp;
-            num_swaps++; 
-          } 
-       } 
-    }
-
-    ev = tmpFilter[FILTER_LENGTH / 2 + 1]; // pick the middle (median) item, filtering out any extremes
-
-    #define DARK_SHIFT_SECONDS 1800
-
-    if(darkPoint != BRAMP_TARGET_AUTO)
-    {
-      if(conf.debugEnabled)
-      {
-        DEBUG("darkPoint: ");
-        DEBUG(darkPoint);
-      }
-      if(ev < (darkPoint - 100))
-      {
-        ev = (darkPoint - 100);
-      }
-      else if(ev < 5)
-      {
-        if(clock.Seconds() - lastMeterSeconds > DARK_SHIFT_SECONDS)
-        {
-          ev = (float)(darkPoint - 100);
-        }
-        else
-        {
-          ev = (float)(darkPoint - 100) * (float)((clock.Seconds() - lastMeterSeconds) / DARK_SHIFT_SECONDS);
-        }
-        lastPointSeconds = clock.Seconds();
-        lastPointReading = ev;
-      }
-      else
-      {
-        if(clock.Seconds() - lastPointSeconds < DARK_SHIFT_SECONDS)
-        {
-          ev = (float)lastPointReading * (1 - (float)((clock.Seconds() - lastPointSeconds) / DARK_SHIFT_SECONDS));
-        }
-
-        lastMeterSeconds = clock.Seconds();
-        lastMeterReading = ev;
-      }
-    }
+    ev = arrayMedian(filter, FILTER_LENGTH);
 
     lastReading = ev;
 
@@ -251,31 +169,49 @@ float Light::readEv()
 
 float Light::readIntegratedEv()
 {
-    float sum = 0.0;
-    for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT; i++) sum += iev[i];
+    if(!integrationActive) return 0.0;
 
-    float value = (float)sum / (float)(LIGHT_INTEGRATION_COUNT);
-
-    return value;
+    return integrated;
 }
 
 float Light::readIntegratedSlope()
 {
-    float value = (readEv() - readIntegratedEv()) / (float)integration;
+    if(!integrationActive) return 0.0;
 
-    value *= 30.0; // stops per 30min
+    float value = (readEv() - integrated) / (float)integration;
+
+    value *= (60.0 / 3.0); // stops per hour
+
+    return value;
+}
+
+float Light::readIntegratedSlopeMedian()
+{
+    if(!integrationActive) return 0.0;
+    float slopes[LIGHT_INTEGRATION_COUNT - 1];
+    for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT - 1; i++)
+    {
+      slopes[i] = (iev[i] - iev[i + 1]) / ((float)integration / (float)LIGHT_INTEGRATION_COUNT);
+    }
+
+    float value = arrayMedian50(slopes, LIGHT_INTEGRATION_COUNT - 1);
+
+    value *= (60.0 / 3.0); // stops per hour
 
     return value;
 }
 
 void Light::task()
 {
-	if(lastSeconds == 0 || !initialized) return;
+	if(!initialized || !integrationActive) return;
+
+  if(skipTask) return;
 
   if(paused)
   {
     lcd.backlight(255);
     wasPaused = 5;
+    DEBUG_NL();
     return;
   }
 
@@ -283,31 +219,89 @@ void Light::task()
   {
     lcd.backlight(0);
     wasPaused--;
+    DEBUG_NL();
     return;
   }
 
-  if(clock.Seconds() > lastSeconds + ((integration * 60) / LIGHT_INTEGRATION_COUNT))
+
+  if(lastSeconds == 0 || (clock.Seconds() > lastSeconds + (uint32_t)((integration * 60) / LIGHT_INTEGRATION_COUNT)))
   {
-      lastSeconds = clock.Seconds();
-      iev[pos] = readEv();
-      pos++;
-      if(pos >= LIGHT_INTEGRATION_COUNT) pos = 0;
-      iev[pos] = 0;
+    lastSeconds = clock.Seconds();
+    for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT - 1; i++)
+    {
+      iev[i] = iev[i + 1];
+    }
+    iev[LIGHT_INTEGRATION_COUNT - 1] = readEv();
+    slope = readIntegratedSlopeMedian();
+
+    if(iev[LIGHT_INTEGRATION_COUNT - 1] <= NIGHT_THRESHOLD)
+    {
+      underThreshold = true;
+      if(lockedSlope == 0.0 && slope) lockedSlope = slope;
+    }
+    else if(iev[LIGHT_INTEGRATION_COUNT - 1] > NIGHT_THRESHOLD + NIGHT_THRESHOLD_HYSTERESIS)
+    {
+      underThreshold = false;
+      lockedSlope = 0.0;
+    }
+
+    median = arrayMedian50(iev, LIGHT_INTEGRATION_COUNT);
+
+    float sum = 0.0;
+    for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT; i++) sum += iev[i];
+    integrated = sum / (float)(LIGHT_INTEGRATION_COUNT);
+
+    if(conf.debugEnabled)
+    {
+      //DEBUG(STR("\r\nIEV: "));
+      //for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT; i++)
+      //{
+      //  DEBUG(iev[i]);
+      //  DEBUG(STR(","));
+      //}
+      //DEBUG_NL();
+//
+      //DEBUG(STR("#######LOCKED "));
+      //DEBUG(lockedSlope);
+      //DEBUG(STR(" #######\r\n"));
+//
+      //DEBUG(STR("####### SLOPE "));
+      //DEBUG(slope);
+      //DEBUG(STR(" #######\r\n"));
+//
+//
+      //DEBUG(STR("#######   INT "));
+      //DEBUG(integrated);
+      //DEBUG(STR(" #######\r\n"));
+//
+      //DEBUG(STR("#######   MED "));
+      //DEBUG(median);
+      //DEBUG(STR(" #######\r\n"));
+//
+      //DEBUG(STR("#######    EV "));
+      //DEBUG(iev[LIGHT_INTEGRATION_COUNT - 1]);
+      //DEBUG(STR(" #######\r\n"));
+    }
   }
 }
 
-void Light::integrationStart(uint8_t integration_minutes, int8_t darkTarget)
+void Light::integrationStart(uint8_t integration_minutes)
 {
 	  start();
-    darkPoint = darkTarget;
-    integration = integration_minutes;
-    pos = 0;
-    lastSeconds = clock.Seconds() + 1; // +1 so it can never be zero
+    //DEBUG(STR(" ####### LIGHT INTEGRATION START #######\r\n"));
+    integration = (uint16_t)integration_minutes;
+    lastSeconds = 0;
     for(uint8_t i = 0; i < LIGHT_INTEGRATION_COUNT; i++)
     {
     	iev[i] = readEv(); // initialize array with readings //
     	wdt_reset();
     }
+    integrationActive = true;
+    slope = 0.0;
+    median = iev[0];
+    integrated = iev[0];
+    lockedSlope = 0.0;
+    task();
 }
 
 float Light::readLux()
@@ -324,13 +318,21 @@ float Light::readLux()
         if(reading < 45000) break;
     }
 
+    scale = range;
+
+    #define READINGS_COUNT 10
+    uint32_t readings = 0;
+    uint8_t count = 0;
     if(range == 0)
     {
-      for(uint8_t i = 0; i < 5; i++)
+      for(uint8_t i = 0; i < READINGS_COUNT; i++)
 	    {
-		    uint16_t reading2 = readRaw();
-	      if((reading2 < reading && reading2 > 0) || reading == 0) reading = reading2;
-	    }	
+		    reading = readRaw();
+        readings += reading;
+        if(reading > 0) count++;
+	    }
+      if(count == 0) count = 1;
+      reading = (uint16_t) (readings / count);
     }
 	
     switch(range)
@@ -351,4 +353,3 @@ float Light::readLux()
     }
     return lux;
 }
-

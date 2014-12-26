@@ -25,7 +25,7 @@ volatile char sysStatus(char key, char first);
 volatile char cableRelease(char key, char first);
 volatile char cableReleaseRemote(char key, char first);
 volatile char shutterTest(char key, char first);
-volatile char shutterLagTest(char key, char first);
+volatile char autoConfigureCameraTiming(char key, char first);
 volatile char lcd_white(char key, char first);
 volatile char lcd_red(char key, char first);
 volatile char notYet(char key, char first);
@@ -50,6 +50,6 @@ volatile char backToMain(char key, char first);
 volatile char timerToGuided(char key, char first);
 volatile char timerToAuto(char key, char first);
 volatile char testing(char key, char first);
-
+volatile char keyFrameEditor(char key, char first);
 void int_to_str(uint16_t n, char buf[6]);
 void updateConditions();

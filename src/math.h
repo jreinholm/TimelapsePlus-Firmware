@@ -12,6 +12,13 @@
 
 float curve(float p0, float p1, float p2, float p3, float t);
 uint32_t curve_int(uint32_t p0, uint32_t p1, uint32_t p2, uint32_t p3, float t);
+float arrayMedian(const float *array, const uint8_t length);
+float arrayMedian50(const float *array, const uint8_t length);
+void sort(const float *array, const uint8_t length);
+uint16_t arrayMedian50UInt(const uint16_t *array, const uint8_t length);
+int16_t arrayMedian50Int(const int16_t *array, const uint8_t length);
+void sortUInteger(const uint16_t *array, const uint8_t length);
+void sortInteger(const int16_t *array, const uint8_t length);
 
 static inline int32_t ilog2(float x)
 {
@@ -42,6 +49,7 @@ inline float libc_log2 (float val)
 {
 	return (log(val)/log(2));
 }
+
 
 //inline float alt_log2 (float val)
 //{

@@ -21,6 +21,7 @@
 #include "timelapseplus.h"
 #include "tlp_menu_functions.h"
 #include "tldefs.h"
+#include "settings.h"
 #include "debug.h"
 #include "bluetooth.h"
 #include "TWI_Master.h"
@@ -42,6 +43,7 @@ extern MENU menu;
 extern Clock clock;
 extern BT bt;
 extern shutter timer;
+extern settings_t conf;
 
 uint16_t battery_low_charging EEMEM;
 uint16_t battery_high_charging EEMEM;
@@ -489,16 +491,22 @@ void hardware_lightning_enable()
         hardware_light_enable(i);
         _delay_ms(50);
         uint16_t reading = hardware_analogRead(0);
-        DEBUG('(');
-        DEBUG(reading);
-        DEBUG(')');
-        DEBUG(':');
-        DEBUG(' ');
-        DEBUG_NL();
+        //DEBUG('(');
+        //DEBUG(reading);
+        //DEBUG(')');
+        //DEBUG(':');
+        //DEBUG(' ');
+        //DEBUG_NL();
         if(reading < 256) break;
     }
-    DEBUG(i);
-    if(getPin(LIGHT_SENSE_PIN)) DEBUG(STR("+")); else DEBUG(STR("-"));
+    //DEBUG(i);
+    //if(getPin(LIGHT_SENSE_PIN)) {
+    //    DEBUG(STR("+"));
+    //}
+    //else
+    //{
+    //    DEBUG(STR("-"));
+    //}
 
     shutter_half();
     

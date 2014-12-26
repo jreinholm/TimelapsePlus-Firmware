@@ -12,7 +12,7 @@
 
 #define MAX_STORED 25
 
-#define SHUTTER_PRESS_TIME (conf.cameraFPS * 4)
+#define SHUTTER_PRESS_TIME (conf.camera.cameraFPS * 4)
 
 #define DONE 0
 #define CONTINUE 1
@@ -32,14 +32,25 @@
 #define BRAMP_METHOD_GUIDED 1
 #define BRAMP_METHOD_AUTO 2
 
-#define BRAMP_INTERVAL_MIN 80
-#define BRAMP_INTERVAL_VAR_MIN 30
+// in 1/10 seconds
+#define BRAMP_GAP_PADDING (conf.camera.brampGap * 10)
+#define BRAMP_INTERVAL_MIN (BRAMP_GAP_PADDING + 20)
+#define BRAMP_INTERVAL_VAR_MIN 20
 
-#define BRAMP_TARGET_AUTO 255
-#define BRAMP_TARGET_STARS (100-4)
-#define BRAMP_TARGET_HALFMOON (100+3)
-#define BRAMP_TARGET_FULLMOON (100+1)
-#define BRAMP_TARGET_CITYLIGHTS (100+5)
+#define P_FACTOR (((float)conf.pFactor)/10.0)
+#define I_FACTOR (((float)conf.iFactor)/10.0)
+#define D_FACTOR (((float)conf.dFactor)/10.0)
+#define PAST_ERROR_COUNT 10
+
+#define BRAMP_TARGET_CUSTOM 255
+#define BRAMP_TARGET_AUTO 254
+
+#define BRAMP_TARGET_OFFSET 100
+ 
+
+                    //1/25 2.8 100 = 30/3
+                    // 30s 2.8 1600 12*3=36
+                    // 30s 2.8 160 25
 
 #define MAX_EXTENDED_RAMP_SHUTTER 69
 
@@ -47,14 +58,15 @@
 #define INTERVAL_MODE_AUTO 1
 #define INTERVAL_MODE_KEYFRAME 2
 
-#define MAX_KEYFRAMES 5
+#define MAX_KEYFRAMES 10
 
 #define DISABLE_SHUTTER setIn(SHUTTER_FULL_PIN);  _delay_ms(50); setLow(SHUTTER_FULL_PIN)
 #define DISABLE_MIRROR setIn(SHUTTER_HALF_PIN); _delay_ms(50); setLow(SHUTTER_HALF_PIN)
 #define ENABLE_SHUTTER setHigh(SHUTTER_FULL_PIN); setOut(SHUTTER_FULL_PIN); setIn(CHECK_CABLE_PIN); setHigh(CHECK_CABLE_PIN); setIn(SHUTTER_SENSE_PIN); setHigh(SHUTTER_SENSE_PIN);
 #define ENABLE_MIRROR setHigh(SHUTTER_HALF_PIN); setOut(SHUTTER_HALF_PIN)
 
-#define ENABLE_AUX_PORT setOut(AUX_OUT1_PIN); setHigh(AUX_OUT1_PIN); setOut(AUX_OUT2_PIN); setHigh(AUX_OUT2_PIN); setIn(AUX_INPUT1_PIN); setHigh(AUX_INPUT1_PIN); setIn(AUX_INPUT2_PIN); setHigh(AUX_INPUT2_PIN)
+#define ENABLE_AUX_PORT1 setOut(AUX_OUT1_PIN); setHigh(AUX_OUT1_PIN); setIn(AUX_INPUT1_PIN); setHigh(AUX_INPUT1_PIN)
+#define ENABLE_AUX_PORT2 setOut(AUX_OUT2_PIN); setHigh(AUX_OUT2_PIN); setIn(AUX_INPUT2_PIN); setHigh(AUX_INPUT2_PIN)
 #define AUX_INPUT1 (getPin(AUX_INPUT1_PIN) == 0)
 #define AUX_INPUT2 (getPin(AUX_INPUT2_PIN) == 0)
 #define AUX_OUT1_ON (setLow(AUX_OUT1_PIN))
@@ -73,32 +85,35 @@
 //#define CHECK_CABLE if(getPin(CHECK_CABLE_PIN) || getPin(SHUTTER_SENSE_PIN)) cable_connected = 1; else cable_connected = 0
 #define CHECK_CABLE if(getPin(CHECK_CABLE_PIN)) cable_connected = 1; else cable_connected = 0
 
-#define SHUTTER_VERSION 20131003
+#define SHUTTER_VERSION 20131122
 
-#define CHECK_ALERT(string, test) if(test) { if(!preChecked) menu.alert(string); } else { if(preChecked) menu.clearAlert(string); }
+#define CHECK_ALERT(string, test) if(test) { if(status.preChecked == 0) menu.alert(string); } else { if(status.preChecked == 1) menu.clearAlert(string); }
 
 struct program
 {
-    char Name[12];            // 12 bytes
-    unsigned int Mode;        // 2 bytes
-    unsigned int Delay;       // 2 bytes
-    unsigned int Duration;    // 2 bytes
-    unsigned int Photos;      // 2 bytes
-    unsigned int IntervalMode;// 2 bytes
-    unsigned int Gap;         // 2 bytes
-    unsigned int GapMin;      // 2 bytes
-    unsigned int Exps;        // 2 bytes
-    unsigned int Exp;         // 2 bytes
-    unsigned int ArbExp;      // 2 bytes
-    unsigned int Bracket;     // 2 bytes
-    unsigned int BulbStart;   // 2 bytes
-    unsigned int Bulb[10];    // 20 bytes
-    unsigned int Key[10];     // 20 bytes
-    unsigned int Keyframes;   // 2 bytes
-    unsigned int brampMethod; // 2 bytes
-    unsigned int Integration; // 2 bytes
-    uint8_t NightSky; // 2 bytes
-    uint8_t infinitePhotos;   // 1 byte  
+    char Name[12];        
+    uint16_t Mode;        
+    uint16_t Delay;       
+    uint16_t Duration;    
+    uint16_t Photos;      
+    uint16_t IntervalMode;
+    uint16_t Gap;         
+    uint16_t GapMin;      
+    uint16_t Exps;        
+    uint16_t Exp;         
+    uint16_t ArbExp;      
+    uint16_t Bracket;     
+    uint16_t BulbStart;   
+    uint16_t Bulb[MAX_KEYFRAMES];    
+    uint16_t Key[MAX_KEYFRAMES];     
+    uint16_t Keyframes;   
+    uint16_t brampMethod; 
+    uint8_t  nightMode;
+    uint8_t  nightISO;
+    uint8_t  nightAperture;
+    uint8_t  nightShutter;
+    uint8_t  infinitePhotos;
+    uint8_t pad[16];
 };
 
 struct timer_status
@@ -114,9 +129,34 @@ struct timer_status
     int8_t rampMax;
     int8_t rampMin;
     unsigned int interval;
+    float rampTarget;
+    int8_t nightTarget;
+    uint8_t preChecked;
+    float lightStart;
 };
 
 extern program stored[MAX_STORED+1]EEMEM;
+
+struct keyframe_t {
+    int16_t value;
+    uint32_t seconds;
+};
+
+struct keyframeGroup_t {
+    keyframe_t keyframes[MAX_KEYFRAMES];
+    uint8_t count;
+    uint8_t selected;
+    uint8_t type;
+    int16_t max;
+    int16_t min;
+    int16_t steps;
+    uint8_t rangeExtendable;    
+    void (*function)(int16_t pos);
+};
+
+#define KFT_EXPOSURE 0
+#define KFT_MOTION 1
+#define KFT_FOCUS 2
 
 class shutter
 {
@@ -129,6 +169,7 @@ public:
     void load(char id);
     void setDefault(void);
     int8_t nextId(void);
+    void calculateExposure(uint32_t *nextBulbLength, uint8_t *nextAperture, uint8_t *nextISO, int8_t *bulbChangeEv);
 
     void saveCurrent(void);
     void restoreCurrent(void);
@@ -149,14 +190,14 @@ public:
     program current;
     timer_status status; 
     volatile char running;  // 0 = not running, 1 = running (shutter closed), 2 = running (shutter open)
-    volatile int8_t currentId;
-    volatile uint16_t length; // in Seconds
-    volatile int8_t rampRate;
-    volatile uint32_t last_photo_ms;
-    volatile float lightReading;
-    volatile float lightStart;
-    volatile float internalRampStops;
-    volatile uint8_t paused, pausing;
+    int8_t currentId;
+    uint16_t length; // in Seconds
+    int8_t rampRate, apertureEvShift;
+    uint32_t last_photo_ms;
+    float lightReading;
+    float pastErrors[PAST_ERROR_COUNT];
+    volatile uint8_t paused, pausing, apertureReady;
+    int8_t evShift;
 
 private:
     double test;
@@ -173,8 +214,10 @@ void shutter_full(void);
 void shutter_bulbEnd(void);
 void shutter_bulbStart(void);
 void shutter_capture(void);
-void aux_on(void);
-void aux_off(void);
+void aux1_on(void);
+void aux1_off(void);
+void aux2_on(void);
+void aux2_off(void);
 void aux_pulse(void);
 uint8_t stopName(char name[7], uint8_t stop);
 uint8_t stopUp(uint8_t stop);
@@ -189,12 +232,17 @@ uint8_t hdrExpsDown(uint8_t hdr_exps);
 uint8_t hdrExpsName(char name[8], uint8_t hdr_exps);
 void calcBulbMax(void);
 int8_t calcRampMax();
+int8_t calcRampTarget(int8_t targetShutter, int8_t targetISO, int8_t targetAperture);
 int8_t calcRampMin();
+uint8_t tvUp(uint8_t ev);
+uint8_t tvDown(uint8_t ev);
 uint8_t rampTvUp(uint8_t ev);
 uint8_t rampTvUpStatic(uint8_t ev);
 uint8_t rampTvUpExtended(uint8_t ev);
 uint8_t rampTvDown(uint8_t ev);
 uint8_t rampTvDownExtended(uint8_t ev);
 void calcInterval();
+
+extern uint8_t lastShutterError;
 #endif
 

@@ -45,13 +45,14 @@
 
 extern IR ir;
 extern PTP camera;
-extern settings conf;
+extern settings_t conf;
 extern shutter timer;
 extern BT bt;
 extern Clock clock;
 extern Light light;
 extern MENU menu;
 extern LCD lcd;
+extern Button button;
 
 volatile unsigned char state;
 const uint16_t settings_warn_time = 0;
@@ -64,7 +65,7 @@ program stored[MAX_STORED+1]EEMEM;
 uint8_t BulbMaxEv;
 
 uint8_t lastShutterError = 0;
-
+uint8_t usbPrimary = 0;
 
 const char STR_BULBMODE_ALERT[]PROGMEM = "Please make sure the camera is in bulb mode before continuing";
 const char STR_BULBSUPPORT_ALERT[]PROGMEM = "Bulb mode not supported via USB. Use an adaptor cable with the USB";
@@ -74,10 +75,11 @@ const char STR_DEVMODE_ALERT[]PROGMEM = "DEV Mode can interfere with the light s
 const char STR_ZEROLENGTH_ALERT[]PROGMEM = "Length greater than zero required in bulb ramp mode. Set the length before running";
 const char STR_NOCAMERA_ALERT[]PROGMEM = "Camera not connected. Connect a camera or press ok to use the IR interface";
 
+keyframeGroup_t kfg;
 
 /******************************************************************
  *
- *   shutter::
+ *   shutter::shutter
  *
  *
  ******************************************************************/
@@ -123,13 +125,15 @@ void shutter::setDefault()
     current.ArbExp = 100;
     current.Bracket = 6;
     current.Keyframes = 1;
-    current.Duration = 3600;
+    current.Duration = 60;  //J.R.
     current.BulbStart = 53;
     current.Bulb[0] = 36;
     current.Key[0] = 3600;
     current.brampMethod = BRAMP_METHOD_AUTO;
-    current.Integration = 10;
-    current.NightSky = BRAMP_TARGET_AUTO;
+    current.nightMode = BRAMP_TARGET_AUTO;
+    current.nightISO = 31;
+    current.nightShutter = 31;
+    current.nightAperture = 9;
     save(0);
 
     uint8_t i;
@@ -186,7 +190,7 @@ void shutter_half(void)
 {
     shutter_off(); // first we completely release the shutter button since some cameras need this to release the bulb
 
-    if(conf.halfPress == HALF_PRESS_ENABLED) clock.in(30, &shutter_half_delayed);
+    if(conf.camera.halfPress == HALF_PRESS_ENABLED) clock.in(30, &shutter_half_delayed);
 }
 void shutter_half_delayed(void)
 {
@@ -231,15 +235,15 @@ void shutter::bulbStart(void)
 void shutter_bulbStart(void)
 {
     lastShutterError = 0;
-    lastShutterError = camera.bulbMode();
-    if(lastShutterError) return;
-    if((cable_connected == 0 || !(conf.interface & INTERFACE_CABLE)) && ir_shutter_state != 1)
+    if((cable_connected == 0 || usbPrimary || !(conf.camera.interface & INTERFACE_CABLE)) && ir_shutter_state != 1)
     {
-        if(camera.supports.bulb && (conf.interface & INTERFACE_USB))
+        if(camera.supports.bulb && (conf.camera.interface & INTERFACE_USB))
         {
+            lastShutterError = camera.bulbMode();
+            if(lastShutterError) return;
             lastShutterError = camera.bulbStart();
         }
-        else if(conf.interface & INTERFACE_IR)
+        else if(conf.camera.interface & INTERFACE_IR && !usbPrimary)
         {
             ir_shutter_state = 1;
             ir.bulbStart();
@@ -250,13 +254,13 @@ void shutter_bulbStart(void)
         //if(camera.supports.capture) camera.busy = true;
     }
 
-    if(conf.interface & INTERFACE_CABLE)
+    if(conf.camera.interface & INTERFACE_CABLE && !usbPrimary)
     {
-        if(conf.bulbMode == 0)
+        if(conf.camera.bulbMode == 0)
         {
             shutter_full();
         } 
-        else if(conf.bulbMode == 1 && shutter_state != 1)
+        else if(conf.camera.bulbMode == 1 && shutter_state != 1)
         {
             shutter_full();
             shutter_state = 1;
@@ -267,7 +271,7 @@ void shutter_bulbStart(void)
         }
     }
 }
-
+//Error: 1001:2001
 /******************************************************************
  *
  *   shutter::bulbEnd
@@ -284,26 +288,26 @@ void shutter_bulbEnd(void)
     DEBUG(PSTR("Bulb End: "));
     if(camera.bulb_open || ir_shutter_state == 1)
     {
-        if(camera.bulb_open && (conf.interface & INTERFACE_USB))
+        if(camera.bulb_open && (conf.camera.interface & INTERFACE_USB))
         {
             DEBUG(PSTR("USB "));
             camera.bulbEnd();
         }
-        else if(conf.interface & INTERFACE_IR)
+        else if(conf.camera.interface & INTERFACE_IR && !usbPrimary)
         {
             DEBUG(PSTR("IR "));
             ir.bulbEnd();
         }
         ir_shutter_state = 0;
     } 
-    if(conf.interface & INTERFACE_CABLE)
+    if(conf.camera.interface & INTERFACE_CABLE && !usbPrimary)
     {
-        if(conf.bulbMode == 0)
+        if(conf.camera.bulbMode == 0)
         {
             DEBUG(PSTR("CABLE "));
             shutter_off();
         }
-        else if(conf.bulbMode == 1 && shutter_state == 1)
+        else if(conf.camera.bulbMode == 1 && shutter_state == 1)
         {
             shutter_full();
             shutter_state = 0;
@@ -327,7 +331,7 @@ void shutter::capture(void)
 void shutter_capture(void)
 {
     lastShutterError = 0;
-    if(conf.interface & (INTERFACE_CABLE | INTERFACE_USB))
+    if(conf.camera.interface & (INTERFACE_CABLE | INTERFACE_USB))
     {
         shutter_full();
         clock.in(SHUTTER_PRESS_TIME, &shutter_off);
@@ -341,7 +345,7 @@ void shutter_capture(void)
             }
             else
             {
-                if(conf.interface & INTERFACE_IR) ir.shutterNow();
+                if(conf.camera.interface & INTERFACE_IR) ir.shutterNow();
             }
         }
         else
@@ -349,7 +353,7 @@ void shutter_capture(void)
             if(camera.supports.capture) camera.busy = true;
         }
     }
-    else if(conf.interface == INTERFACE_IR)
+    else if(conf.camera.interface == INTERFACE_IR)
     {
         ir.shutterNow();
     }
@@ -436,6 +440,7 @@ int8_t shutter::nextId(void)
 
 void shutter::begin()
 {
+    saveCurrent();
     running = 1;
 }
 
@@ -471,10 +476,11 @@ void shutter::pause(uint8_t p)
 char shutter::task()
 {
     char cancel = 0;
-    static uint8_t enter, exps, run_state = RUN_DELAY, old_state = 255, preChecked = false;
-    static int8_t evShift;
+    static uint8_t enter, exps, run_state = RUN_DELAY, old_state = 255;
     static uint16_t photos;
     static uint32_t last_photo_end_ms;
+    static uint8_t usingUSB;
+    static int8_t aperturePausedStart;
 
     if(MIRROR_IS_DOWN)
     {
@@ -489,62 +495,106 @@ char shutter::task()
             return 0;
     }
 
-    if(enter == 0 || preChecked) // Initialize variables and setup I/O pins
+    if((enter == 0 || status.preChecked > 0) && cancel == 0) // Initialize variables and setup I/O pins
     {
+        enter = 1;
         paused = 0;
         pausing = 0;
         if(current.Mode & RAMP)
         {
-            uint32_t tmp = (uint32_t)current.Duration * 10;
+            uint32_t tmp = (uint32_t)current.Duration * 10 * 60;  //J.R.
             tmp /= (uint32_t) current.Gap;
             current.Photos = (uint16_t) tmp;
         }
         status.interval = current.Gap;
 
+        usingUSB = camera.ready;
+
+        if(conf.camera.interface == INTERFACE_AUTO && usingUSB && camera.supports.bulb) usbPrimary = 1; else usbPrimary = 0;
+
         ////////////////////////////// pre check ////////////////////////////////////
-        CHECK_ALERT(STR_NOCAMERA_ALERT, conf.interface != INTERFACE_IR && !camera.supports.capture && !cableIsConnected());
+        CHECK_ALERT(STR_NOCAMERA_ALERT, conf.camera.interface != INTERFACE_IR && !camera.supports.capture && !cableIsConnected());
         CHECK_ALERT(STR_APERTURE_ALERT, camera.ready && camera.supports.aperture && camera.aperture() != camera.apertureWideOpen() && (current.Mode & TIMELAPSE) && !((current.Mode & RAMP) && (conf.brampMode & BRAMP_MODE_APERTURE)));
         CHECK_ALERT(STR_BULBSUPPORT_ALERT, (current.Mode & RAMP) && camera.ready && !camera.supports.bulb && !cable_connected);
-        CHECK_ALERT(STR_BULBMODE_ALERT, (current.Mode & RAMP) && !camera.isInBulbMode());
-        CHECK_ALERT(STR_MEMORYSPACE_ALERT, (current.Photos > 0) && camera.ready && camera.photosRemaining && camera.photosRemaining < current.Photos);
+        CHECK_ALERT(STR_BULBMODE_ALERT, (current.Mode & RAMP) && !(camera.isInBulbMode() || conf.extendedRamp));
+        CHECK_ALERT(STR_MEMORYSPACE_ALERT, (current.Photos > 0) && camera.ready && camera.photosRemaining && camera.photosRemaining < current.Photos && (current.Mode & TIMELAPSE));
         CHECK_ALERT(STR_DEVMODE_ALERT, (current.Mode & RAMP) && (current.brampMethod == BRAMP_METHOD_AUTO) && conf.devMode);
         CHECK_ALERT(STR_ZEROLENGTH_ALERT, (current.Mode & RAMP) && (current.Duration == 0));
 
-        if(!preChecked && menu.waitingAlert())
+        if(!status.preChecked && menu.waitingAlert())
         {
             menu.blink();
         }
 
-        preChecked = true;
+        if(status.preChecked == 0) status.preChecked = 1;
         if(menu.waitingAlert()) return CONTINUE; //////////////////////////////////////////////
 
-        menu.message(TEXT("Loading"));
-        menu.task();
-
-        enter = 1;
-        preChecked = false;
-
-
-        if(current.Mode & RAMP)
+        if(status.preChecked == 1)
         {
-            calcBulbMax();
-            status.rampMax = calcRampMax();
-            status.rampMin = calcRampMin();
-            rampRate = 0;
-            status.rampStops = 0;
-            internalRampStops = 0;
-            //light.integrationStart(current.Integration, current.NightSky);
-            light.integrationStart(current.Integration, BRAMP_TARGET_AUTO);
-            lightReading = lightStart = light.readIntegratedEv();
+            
+            menu.message(TEXT("Loading"));
+            menu.task();
+
+            if(current.Mode & RAMP)
+            {
+                memset(&pastErrors, 0, sizeof(pastErrors));
+                calcBulbMax();
+                status.rampMax = calcRampMax();
+                status.rampMin = calcRampMin();
+                rampRate = 0;
+                status.rampStops = 0.0;
+                light.integrationStart(conf.lightIntegrationMinutes);
+                lightReading = status.lightStart = light.readIntegratedEv();
+
+                if(current.nightMode == BRAMP_TARGET_AUTO)
+                {
+                    status.nightTarget = 0;
+                    status.rampTarget = (float)status.nightTarget;
+                }
+                else if(current.nightMode == BRAMP_TARGET_CUSTOM)
+                {
+                    status.nightTarget = calcRampTarget(current.nightShutter, current.nightISO, current.nightAperture);
+                    status.rampTarget = (float)status.nightTarget;
+                }
+                else
+                {
+                    status.nightTarget = ((int8_t)current.nightMode) - BRAMP_TARGET_OFFSET;
+                    status.rampTarget = status.lightStart - (float)status.nightTarget;
+                }
+                
+                DEBUG(STR(" -----> starting ramp stops: "));
+                DEBUG(status.rampStops);
+                DEBUG(STR(" -----> starting light reading: "));
+                DEBUG(status.lightStart);
+                DEBUG_NL(); 
+                //if(light.underThreshold && current.nightMode != BRAMP_TARGET_AUTO)
+                //{
+                //    DEBUG(STR(" -----> starting at night target\r\n"));
+                //    status.lightStart = status.nightTarget;
+                //}
+                status.preChecked = 2;
+            }
+            
+            if(!current.Mode & RAMP || current.nightMode == BRAMP_TARGET_AUTO || current.brampMethod != BRAMP_METHOD_AUTO)
+            {
+                status.preChecked = 3;
+            }
+
+            if(camera.supports.aperture) aperture = camera.aperture();
+            if(camera.supports.iso) iso = camera.iso();
+
         }
 
-        run_state = RUN_DELAY;
+        if(status.preChecked < 3) return CONTINUE;
+
+        status.preChecked = 0;
+
         clock.tare();
+        clock.reset();
+
+        run_state = RUN_DELAY;
         photos = 0;
         exps = 0;
-
-        if(camera.supports.aperture) aperture = camera.aperture();
-        if(camera.supports.iso) iso = camera.iso();
 
         current.infinitePhotos = current.Photos == 0 ? 1 : 0;
         status.infinitePhotos = current.infinitePhotos;
@@ -564,24 +614,99 @@ char shutter::task()
 
     if(pausing > 0 && paused == 1) // delays the restart to prevent camera shake
     {
-        if(pausing > 10)
+        if(pausing > 8)
         {
             paused = 0;
             pausing = 0;
+            evShift += apertureEvShift;
+            status.rampMax -= apertureEvShift;
+            status.rampMin -= apertureEvShift;
+            apertureEvShift = 0;
+            aperturePausedStart = 0;
+            apertureReady = 0;
         }
         else
         {
+            apertureReady = 0;
             pausing++;
         }
     }
 
-    if(paused) return CONTINUE;
+    if(paused)
+    {
+        if(aperturePausedStart == -1 && camera.supports.aperture && camera.aperture() > 0 && camera.aperture() != 255)
+        {
+            aperturePausedStart = camera.aperture();
+        }
+        else if(camera.supports.aperture && aperturePausedStart > 0)
+        {
+            int8_t rampCurrent = (int8_t) status.rampStops;
+            if(status.rampStops > (float) rampCurrent) rampCurrent++;
+            else if(status.rampStops < (float) rampCurrent) rampCurrent--;
+
+            int8_t avMax = aperturePausedStart + (status.rampMax - rampCurrent); // max stops darker
+            int8_t avMin = aperturePausedStart + (status.rampMin - rampCurrent); // max stops brighter
+
+            if(avMax > conf.apertureMax) avMax = conf.apertureMax;
+            if(avMin < conf.apertureMin) avMin = conf.apertureMin;
+
+            DEBUG(PSTR("rampMin: "));
+            DEBUG(status.rampMin);
+            DEBUG_NL();
+            DEBUG(PSTR("rampMax: "));
+            DEBUG(status.rampMax);
+            DEBUG_NL();
+            DEBUG(PSTR("rampCurrent: "));
+            DEBUG(rampCurrent);
+            DEBUG_NL();
+            DEBUG(PSTR("avMin: "));
+            DEBUG(avMin);
+            DEBUG_NL();
+            DEBUG(PSTR("avMax: "));
+            DEBUG(avMax);
+            DEBUG_NL();
+
+            //if(camera.aperture() > avMax)
+            //{
+            //    camera.setAperture(avMax);
+            //}
+            //else if(camera.aperture() < avMin)
+            //{
+            //    camera.setAperture(avMin);
+            //}
+
+            if(camera.aperture() != avMin) camera.setAperture(avMin);
+
+            apertureEvShift = camera.aperture() - aperturePausedStart;
+            apertureReady = 1;
+        }
+        else
+        {
+            apertureReady = 0;
+
+            // limit any manual changes to the limits
+            int8_t rampCurrent = (int8_t) status.rampStops;
+            if(apertureEvShift > status.rampMax - rampCurrent) apertureEvShift = status.rampMax - rampCurrent; // max stops darker
+            if(apertureEvShift < status.rampMin - rampCurrent) apertureEvShift = status.rampMin - rampCurrent; // max stops brighter
+
+        }
+        return CONTINUE;
+    }
     if(pausing && run_state != RUN_BULB)
     {
+        apertureReady = 0;
         pausing = 0;
         paused = 1;
+        apertureEvShift = 0;
+        if(!camera.supports.aperture && (current.Mode & RAMP)) aperturePausedStart = -1; else aperturePausedStart = 0;
     }
 
+    /////////////////////////////////////////
+
+    if(cancel)
+    {
+        run_state = RUN_END;
+    }
 
     /////// RUNNING PROCEDURE ///////
     if(run_state == RUN_DELAY)
@@ -612,6 +737,8 @@ char shutter::task()
             {
                 // Mirror Up //
                 shutter_half(); // This is to wake up the camera (even if USB is connected)
+                _delay_ms(100);
+                if(usbPrimary) shutter_off();
             }
 
             if((settings_warn_time > 0) && (((unsigned long)clock.event_ms / 1000) + settings_warn_time >= current.Delay))
@@ -622,7 +749,7 @@ char shutter::task()
         }
     }
 
-    if(run_state == RUN_PHOTO && (exps + photos == 0 || (uint8_t)((clock.Ms() - last_photo_end_ms) / 10) >= conf.cameraFPS))
+    if(run_state == RUN_PHOTO && (exps + photos == 0 || (uint8_t)((clock.Ms() - last_photo_end_ms) / 10) >= conf.camera.cameraFPS))
     {
         last_photo_end_ms = 0;
         if(old_state != run_state)
@@ -758,9 +885,74 @@ char shutter::task()
                         exp = camera.bulbTime((int8_t)(current.BulbStart - *((int8_t*)&current.Bulb[current.Keyframes - 1]) - (float)evShift));
                     }
                 }
-                else if(current.brampMethod == BRAMP_METHOD_GUIDED) //////////////////////////////// GUIDED RAMP /////////////////////////////////////
+
+                else if(current.brampMethod == BRAMP_METHOD_GUIDED || current.brampMethod == BRAMP_METHOD_AUTO) //////////////////////////////// GUIDED / AUTO RAMP /////////////////////////////////////
                 {
-                    status.rampStops += ((float)rampRate / 1800.0) * ((float)status.interval / 10.0);
+
+//#################### AUTO BRAMP ####################
+                    if(current.brampMethod == BRAMP_METHOD_AUTO)
+                    {
+                        if(light.underThreshold && current.nightMode != BRAMP_TARGET_AUTO)
+                        {
+                            if(current.nightMode == BRAMP_TARGET_CUSTOM)
+                            {
+                                status.rampTarget = (float)status.nightTarget;
+                            }
+                            else
+                            {
+                                //if(light.slope <= 1 && status.lightStart == status.nightTarget && lightReading - light.integrated >= 3) // respond quickly during night-to-day once we see light
+                                //{
+                                //    DEBUG(STR(" -----> ramping toward sunrise\r\n"));
+                                //    status.rampTarget = -BRAMP_RATE_MAX; //status.lightStart - (float)(NIGHT_THRESHOLD - status.nightTarget);
+                                //}
+                                //else
+                                //{
+                                    DEBUG(STR(" -----> holding night exposure\r\n"));
+                                    status.rampTarget = status.lightStart - (float)status.nightTarget; // hold at night exposure
+                                //}
+                            }
+                        }
+                        else
+                        {
+                            DEBUG(STR(" -----> using light sensor target\r\n"));
+                            status.rampTarget = (status.lightStart - lightReading);
+                        }
+
+                        if(status.rampTarget > status.rampMax) status.rampTarget = status.rampMax;
+                        if(status.rampTarget < status.rampMin) status.rampTarget = status.rampMin;
+                        float delta = status.rampTarget - status.rampStops;
+
+                        float pastError = 0.0;
+                        for(uint8_t i = 0; i < PAST_ERROR_COUNT; i++)
+                        {
+                            pastError += pastErrors[i];
+                            if(i < PAST_ERROR_COUNT - 1) pastErrors[i] = pastErrors[i + 1];
+                        }
+                        pastError /= PAST_ERROR_COUNT;
+                        pastErrors[PAST_ERROR_COUNT - 1] = delta;
+
+                        if(delta != 0)
+                        {
+                            delta *= P_FACTOR;
+                            if(!light.underThreshold) delta += pastError * I_FACTOR;
+
+                            if(light.lockedSlope > 0.0 && current.nightMode != BRAMP_TARGET_AUTO)
+                            {
+                                if(light.lockedSlope < delta) delta = light.lockedSlope; // hold the last valid slope reading from the light sensor
+                            }
+                            else
+                            {
+                                delta += light.slope * D_FACTOR;
+                            }
+
+                        }
+
+                        rampRate = (int8_t) delta;
+                    }
+//####################################################
+
+                    status.rampStops += ((float)rampRate / (3600.0 / 3)) * ((float)status.interval / 10.0);
+
                     if(status.rampStops >= status.rampMax)
                     {
                         rampRate = 0;
@@ -773,231 +965,88 @@ char shutter::task()
                     }
                     exp = camera.bulbTime(current.BulbStart - status.rampStops - (float)evShift);
                 }
-                else if(current.brampMethod == BRAMP_METHOD_AUTO) //////////////////////////////// AUTO RAMP /////////////////////////////////////
-                {
-                    internalRampStops += ((float)rampRate / 1800.0) * ((float)status.interval / 10.0);
-                    status.rampStops = (lightStart - lightReading) + internalRampStops;
-                    
-                    if(status.rampStops > status.rampMax)
-                    {
-                        DEBUG(PSTR("   (ramp max)\n"));
-                        status.rampStops = status.rampMax;
-                    }
-                    else if(status.rampStops < status.rampMin)
-                    {
-                        DEBUG(PSTR("   (ramp min)\n"));
-                        status.rampStops = status.rampMin;
-                    }
-                    //                                   56        -     0            -    -6 
-                    float tmp_ev = (float)current.BulbStart - status.rampStops - (float)evShift;
-                    exp = camera.bulbTime(tmp_ev);
-
-                    if(conf.debugEnabled)
-                    {
-                        DEBUG(PSTR("     lightStart: "));
-                        DEBUG(lightStart);
-                        DEBUG_NL();
-                        DEBUG(PSTR("   lightReading: "));
-                        DEBUG(lightReading);
-                        DEBUG_NL();
-                        DEBUG(PSTR("  bulbStart Ev: "));
-                        DEBUG(current.BulbStart);
-                        DEBUG_NL();
-                        DEBUG(PSTR("   bulbTime Ev: "));
-                        DEBUG(tmp_ev);
-                        DEBUG_NL();
-                        DEBUG(PSTR("   Exp (ms): "));
-                        DEBUG(exp);
-                        DEBUG_NL();                        
-                    }
-                }
 
                 bulb_length = exp;
 
-                if(current.IntervalMode == INTERVAL_MODE_AUTO)
+                if(current.IntervalMode == INTERVAL_MODE_AUTO) // Auto Interval
                 {
-                    status.interval = bulb_length / 100 + BRAMP_INTERVAL_MIN;
-                    if(status.interval + BRAMP_INTERVAL_MIN > current.Gap) status.interval = current.Gap;
-                    if(status.interval < current.GapMin) status.interval = current.GapMin;
+                    float intPercent = (status.rampStops + ((float)camera.bulbMin() - (float)current.BulbStart)) / (float) ((int8_t)camera.bulbMin() - (int8_t)BulbMaxEv);
+
+                    if(intPercent > 1.0) intPercent = 1.0;
+                    if(intPercent < 0.0) intPercent = 0.0;
+
+                    status.interval = current.GapMin + (uint16_t)(intPercent * (float)(current.Gap - current.GapMin));
+
+                    if(conf.debugEnabled)
+                    {
+                        DEBUG(PSTR("rampStops: "));
+                        DEBUG(status.rampStops);
+                        DEBUG_NL();
+                    }
                 }
-                else
+                else // Fixed Interval
                 {
                     status.interval = current.Gap;
                 }
 
 
+                calculateExposure(&bulb_length, &aperture, &iso, &evShift);
 
-                if(camera.supports.iso || camera.supports.aperture)
+                // bulb_length, aperture, iso, evShift, seconds, interval, light.lockedSlope, lightReading
+
+                LOGGER(bulb_length); //0
+                LOGGER(',');
+                LOGGER(aperture); //1
+                LOGGER(',');
+                LOGGER(iso); //2
+                LOGGER(',');
+                LOGGER(evShift); //3
+                LOGGER(',');
+                LOGGER(lightReading); //4
+                LOGGER(',');
+                LOGGER(light.lockedSlope); //5
+                LOGGER(',');
+                LOGGER(light.slope); //6
+                LOGGER(',');
+                LOGGER(clock.Seconds()); //7
+                LOGGER(',');
+                LOGGER(status.interval); //8
+                LOGGER(',');
+                LOGGER(status.nightTarget); //9
+                LOGGER(',');
+                LOGGER(status.rampStops); //10
+                LOGGER_NL();
+
+
+                shutter_off_quick(); // Can't change parameters when half-pressed
+                if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
                 {
-                    uint8_t nextAperture = aperture;
-                    uint8_t nextISO = iso;
-
-                    int8_t tmpShift = 0;
-
-                    if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
+                    // Change the Aperture //
+                    if(camera.aperture() != aperture)
                     {
-                        DEBUG(PSTR("Aperture Close: BEGIN\r\n\r\n"));
-                        // Check for too long bulb time and adjust Aperture //
-                        while(bulb_length > BulbMax)
+                        DEBUG(PSTR("Setting Aperture..."));
+                        if(camera.setAperture(aperture) == PTP_RETURN_ERROR)
                         {
-                            nextAperture = camera.apertureDown(aperture);
-                            if(nextAperture != aperture)
-                            {
-                                evShift += nextAperture - aperture;
-                                tmpShift += nextAperture - aperture;
-                                aperture = nextAperture;
-
-                                DEBUG(PSTR("   Aperture UP:"));
-                                DEBUG(evShift);
-                                DEBUG(PSTR("   Aperture Val:"));
-                                DEBUG(nextAperture);
-                            }
-                            else
-                            {
-                                DEBUG(PSTR("   Reached Aperture Max!!!\r\n"));
-                                break;
-                            }
-                            bulb_length = camera.shiftBulb(exp, tmpShift);
+                            DEBUG(PSTR("ERROR!!!\r\n"));
+                            run_state = RUN_ERROR;
+                            return CONTINUE;
                         }
-                        DEBUG(PSTR("Aperture Close: DONE\r\n\r\n"));
+                        DEBUG_NL();
                     }
-
-                    if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
+                }
+                if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
+                {
+                    // Change the ISO //
+                    if(camera.iso() != iso)
                     {
-                        DEBUG(PSTR("ISO Up: BEGIN\r\n\r\n"));
-                        // Check for too long bulb time and adjust ISO //
-                        while(bulb_length > BulbMax)
+                        DEBUG(PSTR("Setting ISO..."));
+                        if(camera.setISO(iso) == PTP_RETURN_ERROR)
                         {
-                            nextISO = camera.isoUp(iso);
-                            if(nextISO != iso)
-                            {
-                                evShift += nextISO - iso;
-                                tmpShift += nextISO - iso;
-                                iso = nextISO;
-
-                                DEBUG(PSTR("   ISO UP:"));
-                                DEBUG(evShift);
-                                DEBUG(PSTR("   ISO Val:"));
-                                DEBUG(nextISO);
-                            }
-                            else
-                            {
-                                DEBUG(PSTR("   Reached ISO Max!!!\r\n"));
-                                break;
-                            }
-                            bulb_length = camera.shiftBulb(exp, tmpShift);
+                            DEBUG(PSTR("ERROR!!!\r\n"));
+                            run_state = RUN_ERROR;
+                            return CONTINUE;
                         }
-                        DEBUG(PSTR("ISO Up: DONE\r\n\r\n"));
-                    }
-
-
-                    if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
-                    {
-                        // Check for too short bulb time and adjust ISO //
-                        for(;;)
-                        {
-                            DEBUG(PSTR("ISO Down: BEGIN\r\n\r\n"));
-                            nextISO = camera.isoDown(iso);
-                            if(nextISO != iso && nextISO < 127)
-                            {
-                                uint32_t bulb_length_test = camera.shiftBulb(exp, tmpShift + (nextISO - iso));
-                                if(bulb_length_test < BulbMax)
-                                {
-                                    evShift += nextISO - iso;
-                                    tmpShift += nextISO - iso;
-                                    iso = nextISO;
-                                    DEBUG(PSTR("   ISO DOWN:"));
-                                    DEBUG(evShift);
-                                    DEBUG(PSTR("   ISO Val:"));
-                                    DEBUG(nextISO);
-                                    bulb_length = bulb_length_test;
-                                    continue;
-                                }
-                            }
-                            nextISO = iso;
-                            break;
-                        }
-                        DEBUG(PSTR("ISO Down: DONE\r\n\r\n"));
-                    }
-
-
-                    if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
-                    {
-                        // Check for too short bulb time and adjust Aperture //
-                        for(;;)
-                        {
-                            DEBUG(PSTR("Aperture Open: BEGIN\r\n\r\n"));
-                            nextAperture = camera.apertureUp(aperture);
-                            if(nextAperture != aperture)
-                            {
-                                if(nextAperture >= 127) break;
-                                uint32_t bulb_length_test = camera.shiftBulb(exp, tmpShift + (nextAperture - aperture));
-                                if(bulb_length_test < BulbMax)
-                                {
-                                    evShift  += nextAperture - aperture;
-                                    tmpShift += nextAperture - aperture;
-                                    aperture = nextAperture;
-                                    DEBUG(PSTR("Aperture DOWN:"));
-                                    DEBUG(evShift);
-                                    DEBUG(PSTR(" Aperture Val:"));
-                                    DEBUG(nextAperture);
-                                    bulb_length = camera.shiftBulb(exp, tmpShift);
-                                    continue;
-                                }
-                            }
-                            nextAperture = aperture;
-                            break;
-                        }
-                        DEBUG(PSTR("Aperture Open: DONE\r\n\r\n"));
-                    }
-                    
-                    if(conf.extendedRamp)
-                    {
-                        if(bulb_length < camera.bulbTime((int8_t)MAX_EXTENDED_RAMP_SHUTTER))
-                        {
-                            DEBUG(PSTR("   Reached Max Shutter!!!\r\n"));
-                            bulb_length = camera.bulbTime((int8_t)MAX_EXTENDED_RAMP_SHUTTER);
-                        }
-                    }
-                    else
-                    {
-                        if(bulb_length < camera.bulbTime((int8_t)camera.bulbMin()))
-                        {
-                            DEBUG(PSTR("   Reached Bulb Min!!!\r\n"));
-                            bulb_length = camera.bulbTime((int8_t)camera.bulbMin());
-                        }
-                    }
-
-                    shutter_off_quick(); // Can't change parameters when half-pressed
-                    if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
-                    {
-                        // Change the Aperture //
-                        if(camera.aperture() != nextAperture)
-                        {
-                            DEBUG(PSTR("Setting Aperture..."));
-                            if(camera.setAperture(nextAperture) == PTP_RETURN_ERROR)
-                            {
-                                DEBUG(PSTR("ERROR!!!\r\n"));
-                                run_state = RUN_ERROR;
-                                return CONTINUE;
-                            }
-                            DEBUG_NL();
-                        }
-                    }
-                    if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
-                    {
-                        // Change the ISO //
-                        if(camera.iso() != nextISO)
-                        {
-                            DEBUG(PSTR("Setting ISO..."));
-                            if(camera.setISO(nextISO) == PTP_RETURN_ERROR)
-                            {
-                                DEBUG(PSTR("ERROR!!!\r\n"));
-                                run_state = RUN_ERROR;
-                                return CONTINUE;
-                            }
-                            DEBUG_NL();
-                        }
+                        DEBUG_NL();
                     }
                 }
                 
@@ -1013,24 +1062,6 @@ char shutter::task()
                     DEBUG((uint16_t)bulb_length);
                     if(found) DEBUG(PSTR(" (calculated)"));
                     DEBUG_NL();
-
-                    /*
-                    DEBUG(PSTR("i: "));
-                    DEBUG(current.Bulb[i]);
-                    DEBUG_NL();
-                    DEBUG(PSTR("Key1: "));
-                    DEBUG((int16_t)key1);
-                    DEBUG_NL();
-                    DEBUG(PSTR("Key2: "));
-                    DEBUG((int16_t)key2);
-                    DEBUG_NL();
-                    DEBUG(PSTR("Key3: "));
-                    DEBUG((int16_t)key3);
-                    DEBUG_NL();
-                    DEBUG(PSTR("Key4: "));
-                    DEBUG((int16_t)key4);
-                    DEBUG_NL();
-                    */
                 }
             }
 
@@ -1099,7 +1130,7 @@ char shutter::task()
 
             status.bulbLength = bulb_length;
 
-            if(current.Mode & RAMP && !camera.isInBulbMode())
+            if(current.Mode & RAMP && (!camera.isInBulbMode() && camera.ready))
             {
                 DEBUG(PSTR("\r\n-->Using Extended Ramp\r\n"));
                 DEBUG(PSTR("    ms: "));
@@ -1111,12 +1142,13 @@ char shutter::task()
                 DEBUG_NL();
                 camera.setShutter(camera.bulbToShutterEv(bulb_length));
                 shutter_capture();
-                _delay_ms(100);
+                _delay_ms(10);
                 if(lastShutterError)
                 {
+                    clock.cancelBulb();
                     DEBUG(PSTR("USB Error - trying again\r\n"));
                     old_state = 0;
-                    clock.cancelJob();
+                    if(PTP_Error) run_state = RUN_ERROR;
                     return CONTINUE; // try it again
                 }
             }
@@ -1124,13 +1156,17 @@ char shutter::task()
             {
                 //DEBUG(PSTR("Running BULB\r\n"));
                 camera.bulb_open = true;
-                clock.job(&shutter_bulbStart, &shutter_bulbEnd, bulb_length + conf.bulbOffset);
-                _delay_ms(100);
+                		
+                clock.bulb(bulb_length);
+                _delay_ms(10);
+				
+				
                 if(lastShutterError)
                 {
+                    clock.cancelBulb();
                     DEBUG(PSTR("USB Error - trying again\r\n"));
                     old_state = 0;
-                    clock.cancelJob();
+                    if(PTP_Error) run_state = RUN_ERROR;
                     return CONTINUE; // try it again
                 }
             }
@@ -1140,7 +1176,7 @@ char shutter::task()
                 shutter_capture();
             }
         }
-        else if(!clock.jobRunning && !camera.busy)
+        else if(!clock.bulbRunning && !camera.busy)
         {
             exps++;
 
@@ -1155,7 +1191,7 @@ char shutter::task()
         }
         else
         {
-            //if(clock.jobRunning) DEBUG(PSTR("Waiting on clock  "));
+            //if(clock.bulbRunning) DEBUG(PSTR("Waiting on clock  "));
             //if(camera.busy) DEBUG(PSTR("Waiting on camera  "));
         }
     }
@@ -1164,7 +1200,7 @@ char shutter::task()
     {
         last_photo_end_ms = clock.Ms();
 
-        if(PTP_Error)
+        if((PTP_Connected && PTP_Error) || (usingUSB && !camera.ready))
         {
             run_state = RUN_ERROR;
             return CONTINUE;
@@ -1180,11 +1216,7 @@ char shutter::task()
             old_state = run_state;
         }
 
-        if(camera.busy && (photos < current.Photos || ((current.Mode & RAMP) && (clock.Seconds() < current.Duration))))
-        {
-            run_state = RUN_NEXT;
-        }
-        else if((exps >= current.Exps && (current.Mode & HDR)) || (current.Mode & HDR) == 0)
+        if((exps >= current.Exps && (current.Mode & HDR)) || (current.Mode & HDR) == 0)
         {
             exps = 0;
             photos++;
@@ -1201,7 +1233,7 @@ char shutter::task()
         {
             if(current.Mode & RAMP)
             {
-                if(clock.Seconds() >= current.Duration)
+                if(clock.Seconds() >= ((uint32_t)current.Duration * 60))  //J.R.
                 {
                     run_state = RUN_END;
                 }
@@ -1214,16 +1246,12 @@ char shutter::task()
                 }
             }
         }
-        else
-        {
-            run_state = RUN_GAP;
-        }
 
-        if(current.Mode & RAMP && conf.extendedRamp && !camera.isInBulbMode() && conf.modeSwitch == USB_CHANGE_MODE_ENABLED && timer.status.bulbLength > camera.bulbTime((int8_t)camera.bulbMin()))
+        if(camera.ready && current.Mode & RAMP && conf.extendedRamp && !camera.isInBulbMode() && conf.camera.modeSwitch == USB_CHANGE_MODE_ENABLED && timer.status.bulbLength > camera.bulbTime((int8_t)camera.bulbMin()))
         {
             camera.bulbMode();
         }
-        else if(current.Mode & RAMP && conf.extendedRamp && camera.isInBulbMode() && conf.modeSwitch == USB_CHANGE_MODE_ENABLED && timer.status.bulbLength < camera.bulbTime((int8_t)camera.bulbMin()))
+        else if(camera.ready && current.Mode & RAMP && conf.extendedRamp && camera.isInBulbMode() && conf.camera.modeSwitch == USB_CHANGE_MODE_ENABLED && timer.status.bulbLength < camera.bulbTime((int8_t)camera.bulbMin()))
         {
             camera.manualMode();
         }
@@ -1236,7 +1264,7 @@ char shutter::task()
     {
         if(old_state != run_state)
         {
-            if(run_state == RUN_GAP && conf.auxPort == AUX_MODE_DOLLY) aux_pulse();
+            if(conf.auxPort == AUX_MODE_DOLLY) aux_pulse();
             if(conf.debugEnabled)
             {
                 DEBUG(PSTR("State: RUN_GAP"));
@@ -1245,29 +1273,42 @@ char shutter::task()
             strcpy((char *) status.textStatus, TEXT("Waiting"));
             old_state = run_state;
         }
-        uint32_t cms = clock.Ms();
 
-        if((cms - last_photo_ms) / 100 >= status.interval)
+        if(camera.busy && (photos < current.Photos || ((current.Mode & RAMP) && (clock.Seconds() < ((uint32_t)current.Duration * 60)))))  //J.R.
         {
-            last_photo_ms = cms;
-            clock.tare();
-            run_state = RUN_PHOTO;
-        } 
+            run_state = RUN_GAP;
+        }
         else
         {
-            status.nextPhoto = (unsigned int) ((status.interval - (cms - last_photo_ms) / 100) / 10);
-            if((cms - last_photo_ms) / 100 + (uint32_t)settings_mirror_up_time * 10 >= status.interval)
+            uint32_t cms = clock.Ms();
+
+            if((cms - last_photo_ms) / 100 >= status.interval)
             {
-                // Mirror Up //
-                if(!camera.ready) shutter_half(); // Don't do half-press if the camera is connected by USB
+                last_photo_ms = cms;
+                clock.tare();
+                run_state = RUN_PHOTO;
+            } 
+            else
+            {
+                status.nextPhoto = (unsigned int) ((status.interval - (cms - last_photo_ms) / 100) / 10);
+                if((cms - last_photo_ms) / 100 + (uint32_t)settings_mirror_up_time * 10 >= status.interval)
+                {
+                    // Mirror Up //
+                    if(!camera.ready) shutter_half(); // Don't do half-press if the camera is connected by USB
+                }
             }
         }
     }
     
     if(run_state == RUN_ERROR)
     {
-        if(old_state != run_state)
+        static uint8_t errorRetryCount = 0;
+        if(old_state != run_state || errorRetryCount > 40)
         {
+            errorRetryCount = 0;
+            shutter_off();
+            camera.bulbEnd();
+
             if(conf.debugEnabled)
             {
                 DEBUG(PSTR("State: RUN_ERROR"));
@@ -1277,22 +1318,30 @@ char shutter::task()
             strcpy((char *) status.textStatus, TEXT("Error"));
             old_state = run_state;
 
-            if(PTP_Connected && PTP_Error)
-            {
+            //if(PTP_Connected && PTP_Error)
+            //{
+                DEBUG(PSTR("Resetting Camera"));
+                DEBUG_NL();
+                shutter_half();
+                _delay_ms(100);
+                shutter_off();
                 camera.resetConnection();
-            }
+            //}
         }
 
         //enter = 0;
         //running = 0;
-        shutter_off();
-        camera.bulbEnd();
         //light.stop();
 
         //hardware_flashlight((uint8_t) clock.Seconds() % 2);
 
-        if(camera.ready) run_state = RUN_NEXT;
+        errorRetryCount++;
 
+        if(camera.ready)
+        {
+            errorRetryCount = 0;
+            run_state = RUN_NEXT;
+        }
         return CONTINUE;
     }
 
@@ -1309,26 +1358,170 @@ char shutter::task()
             old_state = run_state;
         }
 
+        pausing = 0;
+        paused = 0;
         enter = 0;
         running = 0;
         shutter_off();
         camera.bulbEnd();
         hardware_flashlight(0);
         light.stop();
-        aux_off();
+        aux1_off();
+        aux2_off();
         clock.awake();
+        usbPrimary = 0;
+        status.preChecked = 0;
 
         return DONE;
     }
 
-    /////////////////////////////////////////
-
-    if(cancel)
-    {
-        run_state = RUN_END;
-    }
-
     return CONTINUE;
+}
+
+void shutter::calculateExposure(uint32_t *nextBulbLength, uint8_t *nextAperture, uint8_t *nextISO, int8_t *bulbChangeEv)
+{
+    if(camera.supports.iso || camera.supports.aperture || camera.supports.shutter)
+    {
+        uint8_t aperture = *nextAperture, iso = *nextISO;
+
+        uint32_t exp = *nextBulbLength;
+
+        int8_t tmpShift = 0;
+
+        if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
+        {
+            DEBUG(PSTR("Aperture Close: BEGIN\r\n\r\n"));
+            // Check for too long bulb time and adjust Aperture //
+            while(*nextBulbLength > BulbMax)
+            {
+                *nextAperture = camera.apertureDown(aperture);
+                if(*nextAperture != aperture)
+                {
+                    *bulbChangeEv += *nextAperture - aperture;
+                    tmpShift += *nextAperture - aperture;
+                    aperture = *nextAperture;
+
+                    DEBUG(PSTR("   Aperture UP:"));
+                    DEBUG(*bulbChangeEv);
+                    DEBUG(PSTR("   Aperture Val:"));
+                    DEBUG(*nextAperture);
+                }
+                else
+                {
+                    DEBUG(PSTR("   Reached Aperture Max!!!\r\n"));
+                    break;
+                }
+                *nextBulbLength = camera.shiftBulb(exp, tmpShift);
+            }
+            DEBUG(PSTR("Aperture Close: DONE\r\n\r\n"));
+        }
+
+        if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
+        {
+            DEBUG(PSTR("ISO Up: BEGIN\r\n\r\n"));
+            // Check for too long bulb time and adjust ISO //
+            while(*nextBulbLength > BulbMax)
+            {
+                *nextISO = camera.isoUp(iso);
+                if(*nextISO != iso)
+                {
+                    *bulbChangeEv += *nextISO - iso;
+                    tmpShift += *nextISO - iso;
+                    iso = *nextISO;
+
+                    DEBUG(PSTR("   ISO UP:"));
+                    DEBUG(*bulbChangeEv);
+                    DEBUG(PSTR("   ISO Val:"));
+                    DEBUG(*nextISO);
+                }
+                else
+                {
+                    DEBUG(PSTR("   Reached ISO Max!!!\r\n"));
+                    break;
+                }
+                *nextBulbLength = camera.shiftBulb(exp, tmpShift);
+            }
+            DEBUG(PSTR("ISO Up: DONE\r\n\r\n"));
+        }
+
+
+        if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
+        {
+            // Check for too short bulb time and adjust ISO //
+            for(;;)
+            {
+                DEBUG(PSTR("ISO Down: BEGIN\r\n\r\n"));
+                *nextISO = camera.isoDown(iso);
+                if(*nextISO != iso && *nextISO < 127)
+                {
+                    uint32_t bulb_length_test = camera.shiftBulb(exp, tmpShift + (*nextISO - iso));
+                    if(bulb_length_test < BulbMax)
+                    {
+                        *bulbChangeEv += *nextISO - iso;
+                        tmpShift += *nextISO - iso;
+                        iso = *nextISO;
+                        DEBUG(PSTR("   ISO DOWN:"));
+                        DEBUG(*bulbChangeEv);
+                        DEBUG(PSTR("   ISO Val:"));
+                        DEBUG(*nextISO);
+                        *nextBulbLength = bulb_length_test;
+                        continue;
+                    }
+                }
+                *nextISO = iso;
+                break;
+            }
+            DEBUG(PSTR("ISO Down: DONE\r\n\r\n"));
+        }
+
+
+        if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
+        {
+            // Check for too short bulb time and adjust Aperture //
+            for(;;)
+            {
+                DEBUG(PSTR("Aperture Open: BEGIN\r\n\r\n"));
+                *nextAperture = camera.apertureUp(aperture);
+                if(*nextAperture != aperture)
+                {
+                    if(*nextAperture >= 127) break;
+                    uint32_t bulb_length_test = camera.shiftBulb(exp, tmpShift + (*nextAperture - aperture));
+                    if(bulb_length_test < BulbMax)
+                    {
+                        *bulbChangeEv  += *nextAperture - aperture;
+                        tmpShift += *nextAperture - aperture;
+                        aperture = *nextAperture;
+                        DEBUG(PSTR("Aperture DOWN:"));
+                        DEBUG(*bulbChangeEv);
+                        DEBUG(PSTR(" Aperture Val:"));
+                        DEBUG(*nextAperture);
+                        *nextBulbLength = camera.shiftBulb(exp, tmpShift);
+                        continue;
+                    }
+                }
+                *nextAperture = aperture;
+                break;
+            }
+            DEBUG(PSTR("Aperture Open: DONE\r\n\r\n"));
+        }
+        
+        if(conf.extendedRamp)
+        {
+            if(*nextBulbLength < camera.bulbTime((int8_t)MAX_EXTENDED_RAMP_SHUTTER))
+            {
+                DEBUG(PSTR("   Reached Max Shutter!!!\r\n"));
+                *nextBulbLength = camera.bulbTime((int8_t)MAX_EXTENDED_RAMP_SHUTTER);
+            }
+        }
+        else
+        {
+            if(*nextBulbLength < camera.bulbTime((int8_t)camera.bulbMin()))
+            {
+                DEBUG(PSTR("   Reached Bulb Min!!!\r\n"));
+                *nextBulbLength = camera.bulbTime((int8_t)camera.bulbMin());
+            }
+        }
+    }
 }
 
 void shutter::switchToGuided()
@@ -1339,9 +1532,10 @@ void shutter::switchToGuided()
 
 void shutter::switchToAuto()
 {
-    lightReading = lightStart = light.readIntegratedEv();
-    internalRampStops = status.rampStops;
+    light.integrationStart(conf.lightIntegrationMinutes);
+    lightReading = status.lightStart = light.readIntegratedEv();
     current.brampMethod = BRAMP_METHOD_AUTO;
+    current.nightMode = BRAMP_TARGET_AUTO;
 }
 
 void check_cable()
@@ -1351,21 +1545,34 @@ void check_cable()
 
 void aux_pulse()
 {
-    aux_on();
+    aux1_on();
+    aux2_on();
     if(conf.dollyPulse == 65535) conf.dollyPulse = 100;
-    clock.in(conf.dollyPulse, &aux_off);
+    if(conf.dollyPulse2 == 65535) conf.dollyPulse2 = 100;
+    clock.in(conf.dollyPulse, &aux1_off);
+    clock.in(conf.dollyPulse2, &aux2_off);
 }
 
-void aux_on()
+void aux1_on()
 {
-    ENABLE_AUX_PORT;
+    ENABLE_AUX_PORT1;
     AUX_OUT1_ON;
+}
+
+void aux1_off()
+{
+    ENABLE_AUX_PORT1;
+}
+
+void aux2_on()
+{
+    ENABLE_AUX_PORT2;
     AUX_OUT2_ON;
 }
 
-void aux_off()
+void aux2_off()
 {
-    ENABLE_AUX_PORT;
+    ENABLE_AUX_PORT2;
 }
 
 uint8_t stopName(char name[8], uint8_t stop)
@@ -1427,20 +1634,28 @@ uint8_t stopName(char name[8], uint8_t stop)
 
 void calcBulbMax()
 {
-    BulbMax = (timer.current.Gap / 10 - 6) * 1000;
+    BulbMax = (timer.current.Gap - BRAMP_GAP_PADDING) * 100;
+
+    DEBUG(PSTR("BMAX1: "));
+    DEBUG(BulbMax);
+    DEBUG_NL();
 
     BulbMaxEv = 1;
-    for(uint8_t i = camera.bulbMax(); i < camera.bulbMin(); i++)
+    for(int8_t i = camera.bulbMax(); i < camera.bulbMin(); i++)
     {
-        if(BulbMax > camera.bulbTime((int8_t)i))
+        if(BulbMax >= camera.bulbTime(i))
         {
             if(i < 1) i = 1;
-            BulbMaxEv = i - 1;
+            BulbMaxEv = i;
+            BulbMax = camera.bulbTime((int8_t)BulbMaxEv);
             break;
         }
     }
 
-    BulbMax = camera.bulbTime((int8_t)BulbMaxEv);
+
+    DEBUG(PSTR("BMAX2: "));
+    DEBUG(BulbMax);
+    DEBUG_NL();
 }
 
 uint8_t stopUp(uint8_t stop)
@@ -1480,6 +1695,21 @@ int8_t calcRampMax()
     return isoRange + apertureRange + bulbRange;
 }
 
+int8_t calcRampTarget(int8_t targetShutter, int8_t targetISO, int8_t targetAperture)
+{
+    calcBulbMax();
+
+    int8_t bulbRange = 0;
+    int8_t isoRange = 0;
+    int8_t apertureRange = 0;
+
+    if(conf.brampMode & BRAMP_MODE_BULB) bulbRange = (int8_t)timer.current.BulbStart - targetShutter;
+    if(conf.brampMode & BRAMP_MODE_ISO) isoRange = (int8_t)camera.iso() - targetISO;
+    if(conf.brampMode & BRAMP_MODE_APERTURE) apertureRange = (int8_t)camera.aperture() - targetAperture;
+
+    return isoRange + apertureRange + bulbRange;
+}
+
 int8_t calcRampMin()
 {
     int8_t bulbRange = 0;
@@ -1488,7 +1718,7 @@ int8_t calcRampMin()
 
     if(conf.brampMode & BRAMP_MODE_BULB)
     {
-        if(conf.extendedRamp)
+        if(conf.extendedRamp && camera.ready)
         {
             uint8_t shutterMax = PTP::shutterMax();
             if(shutterMax > MAX_EXTENDED_RAMP_SHUTTER) shutterMax = MAX_EXTENDED_RAMP_SHUTTER;
@@ -1661,6 +1891,21 @@ uint8_t hdrExpsName(char name[8], uint8_t hdr_exps)
 
     return 1;
 }
+
+uint8_t tvUp(uint8_t ev)
+{
+    if(ev == 254) return ev;
+    uint8_t tmp = PTP::bulbUp(ev);
+    if(tmp > 33) tmp = 254;
+    return tmp;
+}
+
+uint8_t tvDown(uint8_t ev)
+{
+    if(ev == 254) return 33;
+    return PTP::bulbDown(ev);
+}
+
 
 uint8_t rampTvUp(uint8_t ev)
 {

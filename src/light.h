@@ -4,7 +4,8 @@
 #define LIGHT_INTEGRATION_COUNT 32
 #define FILTER_LENGTH 3
 
-#define ANALOG_THRESHOLD 18
+#define NIGHT_THRESHOLD 20
+#define NIGHT_THRESHOLD_HYSTERESIS 5
 #define OFFSET_UNSET 65535
 
 class Light
@@ -21,25 +22,23 @@ public:
 	float readEv();
 	float readIntegratedEv();
 	float readIntegratedSlope();
-	void integrationStart(uint8_t integration_minutes, int8_t darkTarget);
+	float readIntegratedSlopeMedian();
+	void integrationStart(uint8_t integration_minutes);
 	float readLux();
 
-	uint8_t method, paused;
+    float lockedSlope, slope, integrated, median;
+	uint8_t method, paused, skipTask, scale;
+	bool underThreshold;
 
 private:
     float iev[LIGHT_INTEGRATION_COUNT];
     float filter[FILTER_LENGTH];
     int8_t filterIndex;
-    int8_t pos, wasPaused;
-    uint8_t darkPoint;
-    uint8_t integration;
-    uint16_t lastSeconds;
+    int8_t wasPaused;
+    uint16_t integration;
+    uint32_t lastSeconds;
     uint8_t initialized;
     uint16_t offset;
-
-    uint32_t lastPointSeconds;
-	float lastPointReading;
-    uint32_t lastMeterSeconds;
-	float lastMeterReading;
+    bool integrationActive;
 
 };

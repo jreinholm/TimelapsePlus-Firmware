@@ -19,7 +19,7 @@
 #include <LUFA/Drivers/Peripheral/Serial.h>
 #include "tldefs.h"
 #include "5110LCD.h"
-#include "AVRS_logo.h"
+//#include "AVRS_logo.h"
 #include "clock.h"
 #include "button.h"
 #include "Menu.h"
@@ -39,6 +39,7 @@
 #include "notify.h"
 #include "PTP.h"
 #include "light.h"
+#include "nmx.h"
 
 #ifdef PRODUCTION
 #include "LCD_Term.h"
@@ -64,6 +65,11 @@ extern volatile uint8_t bulb1;
 extern volatile uint8_t bulb2;
 extern volatile uint8_t bulb3;
 extern volatile uint8_t bulb4;
+extern volatile uint8_t bulb5;
+extern volatile uint8_t bulb6;
+extern volatile uint8_t bulb7;
+extern volatile uint8_t bulb8;
+extern volatile uint8_t bulb9;
 extern volatile uint8_t showRemoteStart;
 extern volatile uint8_t showRemoteInfo;
 extern volatile uint8_t brampKeyframe;
@@ -74,12 +80,16 @@ extern volatile uint8_t brampNotGuided;
 extern volatile uint8_t showIntervalMaxMin;
 extern volatile uint8_t modeRampNormal;
 extern volatile uint8_t modeRampExtended;
+extern volatile uint8_t rampISO;
+extern volatile uint8_t rampAperture;
+extern volatile uint8_t rampTargetCustom;
+extern volatile uint8_t cameraMakeNikon;
 
 volatile uint8_t connectUSBcamera = 0;
 
 uint8_t battery_percent, charge_status, USBmode = 0;
 
-extern settings conf;
+extern settings_t conf;
 
 extern uint8_t Camera_Connected;
 
@@ -128,11 +138,27 @@ void setup()
 	hardware_init();
 	settings_init();
 
-
+	// Splash Screen
 	lcd.init(conf.lcdContrast);
-    lcd.writeString(12, 15, STR("Timelapse+"));
+    lcd.writeString(12, 07, STR("Timelapse+"));
     uint8_t l = lcd.measureStringTiny(conf.sysName) / 2;
-    lcd.writeStringTiny(41 - l, 25, conf.sysName);
+    lcd.writeStringTiny(41 - l, 17, conf.sysName);
+
+    #define BATT_X 26
+    #define BATT_Y 26
+    lcd.drawLine(0+BATT_X, BATT_Y+0, 30+BATT_X, BATT_Y+0);
+    lcd.drawLine(0+BATT_X, BATT_Y+8, 30+BATT_X, BATT_Y+8);
+    lcd.drawLine(0+BATT_X, BATT_Y+0, 0+BATT_X, BATT_Y+8);
+    lcd.drawLine(30+BATT_X, BATT_Y+0, 30+BATT_X, BATT_Y+8);
+    lcd.drawLine(31+BATT_X, BATT_Y+3, 31+BATT_X, BATT_Y+5);
+
+    uint8_t battery = (uint8_t) ((float)battery_read()/100.0 * 27.0);
+
+    for(uint8_t i = 0; i < battery; i++)
+    {
+	    lcd.drawLine(2+BATT_X+i, BATT_Y+2, 2+BATT_X+i, BATT_Y+6);
+    }
+
 	uint32_t version = VERSION;
 	char buf[2], *text;
 	l = 0;
@@ -149,6 +175,7 @@ void setup()
 		version /= 10;
 	}
     lcd.update();
+
 
 	clock.init();
 
@@ -209,11 +236,6 @@ int main()
 
     if(conf.firmwareVersion != VERSION)
     {
-    	if(conf.firmwareVersion <= 20120212)
-    	{
-    		conf.interface = INTERFACE_AUTO;
-		    conf.brampMode = BRAMP_MODE_ALL;
-    	}
         conf.firmwareVersion = VERSION;
         settings_save();
         menu.spawn((void*)firmwareUpdated);
@@ -247,7 +269,7 @@ int main()
 	for(;;)
 	{
 		wdt_reset();
-
+#ifdef USB_SERIAL_COMMANDS_ENABLED
 		if(VirtualSerial_CharWaiting()) // Process USB Commands from PC (needs to be moved to sub-module)
 		{
 			char c = VirtualSerial_GetChar();
@@ -326,7 +348,7 @@ int main()
 				   break;
 #endif
 			   case 'I':
-			   	   light.integrationStart(10, 0);
+			   	   light.integrationStart(10);
 			   	   DEBUG(PSTR("Light Sensor Integration Start\r\n"));
 				   break;
 
@@ -359,7 +381,7 @@ int main()
 				    }
 			}
 		}
-
+#endif
 
 		/****************************
 		   Tasks
@@ -451,24 +473,31 @@ void message_notify(uint8_t id)
 			else
 			{
 				menu.message(STR("Disconnected"));
+				bt.advertise(); // this keeps the device awake after disconnecting, regardless of the conf.btMode setting
 			}
 			break;
 
 		case NOTIFY_CAMERA:
 			if(PTP_Ready)
 			{
+				settings_setup_camera_index(PTP_CameraSerial);
 				menu.message(STR("USB Camera"));
 				menu.refresh();
-//				menu.message(PTP_CameraModel);
 				camera.init();
+				if(!conf.camera.autoConfigured && conf.auxPort == AUX_MODE_SYNC)
+				{
+			        menu.spawn((void*)autoConfigureCameraTiming);
+				}
 			}
 			else
 			{
+				settings_load_camera_default();
 				if(PTP_Error && timer.running)
 				{
 					//timerStop(0, 1);
-					menu.push(1);
-					menu.spawn((void*)usbPlug);
+					//menu.push(1);
+					//menu.spawn((void*)usbPlug);
+					menu.message(STR("PTP Error"));
 				}
 				else
 				{

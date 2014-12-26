@@ -19,7 +19,7 @@
 #include "tldefs.h"
 #include "PTP_Driver.h"
 
-extern settings conf;
+extern settings_t conf;
 extern Remote remote;
 extern BT bt;
 
@@ -32,15 +32,16 @@ extern BT bt;
 
 void debug(char *s)
 {
-#ifndef PTP_DEBUG
     if(conf.debugEnabled == 0) return;
+//#ifndef PTP_DEBUG
+#ifndef LOGGER_ENABLED
     if(VirtualSerial_connected)
         VirtualSerial_PutString(s);
 //    else if(remote.connected && remote.model == REMOTE_MODEL_TLP)
 //        remote.debug(s);
-    else if(bt.state == BT_ST_CONNECTED && remote.model == 0)
+//    else if(bt.state == BT_ST_CONNECTED && remote.model == 0)
 #endif
-       bt.send(s);
+//       if(bt.state == BT_ST_CONNECTED) bt.send(s);
 }
 
 /******************************************************************
@@ -53,6 +54,7 @@ void debug(char *s)
 void debug(const char *s)
 {
     if(conf.debugEnabled == 0) return;
+#ifndef LOGGER_ENABLED
     if(VirtualSerial_connected)
     {
         char c = pgm_read_byte(s);
@@ -65,8 +67,9 @@ void debug(const char *s)
     }
 //    else if(remote.connected && remote.model == REMOTE_MODEL_TLP)
 //        remote.debug(s);
-    else if(bt.state == BT_ST_CONNECTED && remote.model == 0)
-       bt.sendP(s);
+//    else if(bt.state == BT_ST_CONNECTED && remote.model == 0)
+#endif
+//       if(bt.state == BT_ST_CONNECTED) bt.sendP(s);
 }
 
 /******************************************************************

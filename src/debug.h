@@ -20,7 +20,10 @@ void debug_nl(void);
 void debug_remote(char *s);
 
 // This can be set per file -- set here to enable globally
-#define DEBUG_ENABLED
+#ifndef PRODUCTION
+	#define DEBUG_ENABLED
+//	#define LOGGER_ENABLED
+#endif
 
 #ifdef DEBUG_ENABLED
 #define DEBUG(x) debug(x)
@@ -28,4 +31,12 @@ void debug_remote(char *s);
 #else
 #define DEBUG(x)
 #define DEBUG_NL()
+#endif
+
+#ifdef LOGGER_ENABLED
+#define LOGGER(x) debug(x)
+#define LOGGER_NL debug_nl
+#else
+#define LOGGER(x)
+#define LOGGER_NL()
 #endif

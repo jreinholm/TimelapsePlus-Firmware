@@ -8,7 +8,7 @@
 #include <LUFA/Drivers/Peripheral/Serial.h>
 #include "tldefs.h"
 #include "5110LCD.h"
-#include "AVRS_logo.h"
+//#include "AVRS_logo.h"
 #include "clock.h"
 #include "button.h"
 #include "Menu.h"
@@ -28,6 +28,7 @@
 #include "selftest.h"
 #include "remote.h"
 #include "light.h"
+#include "nmx.h"
 #include "tlp_menu_functions.h"
 
 volatile uint8_t showGap = 0;
@@ -49,18 +50,28 @@ volatile uint8_t bulb1 = 0;
 volatile uint8_t bulb2 = 0;
 volatile uint8_t bulb3 = 0;
 volatile uint8_t bulb4 = 0;
+volatile uint8_t bulb5 = 0;
+volatile uint8_t bulb6 = 0;
+volatile uint8_t bulb7 = 0;
+volatile uint8_t bulb8 = 0;
+volatile uint8_t bulb9 = 0;
 volatile uint8_t showRemoteStart = 0;
 volatile uint8_t showRemoteInfo = 0;
 volatile uint8_t brampKeyframe = 0;
 volatile uint8_t brampGuided = 0;
 volatile uint8_t brampAuto = 0;
 volatile uint8_t showIntervalMaxMin = INTERVAL_MODE_FIXED;
+volatile uint8_t rampISO = 0;
+volatile uint8_t rampAperture = 0;
+volatile uint8_t rampTargetCustom = 0;
 
 volatile uint8_t brampNotAuto = 0;
 volatile uint8_t brampNotGuided = 0;
 
+volatile uint8_t cameraMakeNikon = 0;
+
 extern uint8_t battery_percent;
-extern settings conf;
+extern settings_t conf;
 extern uint8_t Camera_Connected;
 extern volatile uint8_t connectUSBcamera;
 
@@ -96,8 +107,8 @@ void updateConditions()
 	modeHDR = (timer.current.Mode & HDR);
 	modeStandard = (!modeHDR && !modeRamp);
 
-	modeStandardExp = modeStandard && (conf.cameraMake != NIKON) && !conf.arbitraryBulb;
-	modeStandardExpNikon = modeStandard && (conf.cameraMake == NIKON) && !conf.arbitraryBulb;
+	modeStandardExp = modeStandard && (conf.camera.cameraMake != NIKON) && !conf.arbitraryBulb;
+	modeStandardExpNikon = modeStandard && (conf.camera.cameraMake == NIKON) && !conf.arbitraryBulb;
 	modeStandardExpArb = modeStandard && conf.arbitraryBulb;
 
 	modeRamp = (timer.current.Mode & RAMP);
@@ -113,19 +124,28 @@ void updateConditions()
 	bulb2 = timer.current.Keyframes > 2 && brampKeyframe;
 	bulb3 = timer.current.Keyframes > 3 && brampKeyframe;
 	bulb4 = timer.current.Keyframes > 4 && brampKeyframe;
+	bulb5 = timer.current.Keyframes > 5 && brampKeyframe;
+	bulb6 = timer.current.Keyframes > 6 && brampKeyframe;
+	bulb7 = timer.current.Keyframes > 7 && brampKeyframe;
+	bulb8 = timer.current.Keyframes > 8 && brampKeyframe;
+	bulb9 = timer.current.Keyframes > 9 && brampKeyframe;
 	showGap = timer.current.Photos != 1 && modeTimelapse && (timer.current.IntervalMode == INTERVAL_MODE_FIXED || modeNoRamp);
 	showIntervalMaxMin = timer.current.Photos != 1 && modeTimelapse && modeRamp && timer.current.IntervalMode == INTERVAL_MODE_AUTO;
 	showRemoteStart = (remote.connected && !remote.running && remote.model == REMOTE_MODEL_TLP);	
 	showRemoteInfo = (remote.connected && (remote.model == REMOTE_MODEL_TLP || remote.model == REMOTE_MODEL_IPHONE));
-	clock.sleepOk = timerNotRunning && !timer.cableIsConnected() && bt.state != BT_ST_CONNECTED && sleepOk;
+	clock.sleepOk = timerNotRunning && !timer.cableIsConnected() && bt.state != BT_ST_CONNECTED && bt.state != BT_ST_CONNECTED_NMX && sleepOk;
 	brampNotGuided = modeRamp && !brampGuided;
-	brampNotAuto = modeRamp && !brampAuto;
+	brampNotAuto = modeRamp && !brampAuto && !light.underThreshold;
+	rampISO = (conf.brampMode & BRAMP_MODE_ISO && camera.supports.iso);
+	rampAperture = (conf.brampMode & BRAMP_MODE_APERTURE && camera.supports.aperture);
+	rampTargetCustom = (timer.current.nightMode == BRAMP_TARGET_CUSTOM && brampAuto);
+	cameraMakeNikon = conf.camera.cameraMake == NIKON;
 	if(modeRamp && timer.current.Gap < BRAMP_INTERVAL_MIN)
 	{
 		timer.current.Gap = BRAMP_INTERVAL_MIN;
 		menu.refresh();
 	}
-	if(modeRamp && timer.current.GapMin < BRAMP_INTERVAL_VAR_MIN)
+	if(modeRamp && (timer.current.GapMin < BRAMP_INTERVAL_VAR_MIN))
 	{
 		timer.current.GapMin = BRAMP_INTERVAL_VAR_MIN;
 		menu.refresh();
@@ -597,34 +617,55 @@ volatile char cableReleaseRemote(char key, char first)
 
 /******************************************************************
  *
- *   shutterLagTest
+ *   autoConfigureCameraTiming
  *
  *
  ******************************************************************/
 
-volatile char shutterLagTest(char key, char first)
+volatile char autoConfigureCameraTiming(char key, char first)
 {
-//  static uint8_t cable;
 	uint16_t start_lag, end_lag;
 
 	if(first)
 	{
 		lcd.cls();
-		menu.setTitle(TEXT("Calc BOffset"));
-		menu.setBar(TEXT("Return"), TEXT("Test"));
+		menu.setTitle(TEXT("Auto Configure"));
+
+		if(!conf.camera.autoConfigured && camera.ready)
+		{
+			lcd.writeStringTiny(2, 8,  PTEXT(" Camera requires  "));
+			lcd.writeStringTiny(2, 14, PTEXT(" calibration for  "));
+			lcd.writeStringTiny(2, 20, PTEXT(" Bramping. Please "));
+			lcd.writeStringTiny(2, 26, PTEXT(" Connect PC sync  "));
+			lcd.writeStringTiny(2, 32, PTEXT(" and press run... "));
+			menu.setBar(TEXT("Later"), TEXT("Run"));
+		}
+		else
+		{
+			lcd.writeStringTiny(2, 10, PTEXT(" Connect PC Sync  "));
+			lcd.writeStringTiny(2, 16, PTEXT(" cable and USB and"));
+			lcd.writeStringTiny(2, 22, PTEXT(" or shutter cable "));
+			lcd.writeStringTiny(2, 28, PTEXT(" before continuing"));
+			menu.setBar(TEXT("Cancel"), TEXT("Continue"));
+		}
 		lcd.update();
 	}
 
 	if(key == FR_KEY)
 	{
-		lcd.eraseBox(10, 8, 80, 38);
-		lcd.writeString(10,  8, PTEXT("    In:"));
-		lcd.writeString(10, 18, PTEXT("   Out:"));
-		lcd.writeString(10, 28, PTEXT("Offset:"));
+		lcd.cls();
+		menu.setTitle(TEXT("Auto Configure"));
+		lcd.writeStringTiny(2, 14, PTEXT(" Running Test...  "));
+		lcd.writeStringTiny(2, 20, PTEXT("   Please Wait    "));
 
+		menu.setBar(BLANK_STR, BLANK_STR);
+		lcd.update();
+
+		uint8_t pass = 1;
 		ENABLE_SHUTTER;
 		ENABLE_MIRROR;
-		ENABLE_AUX_PORT;
+		ENABLE_AUX_PORT1;
+		ENABLE_AUX_PORT2;
 
 		_delay_ms(100);
 
@@ -633,35 +674,248 @@ volatile char shutterLagTest(char key, char first)
 			MIRROR_UP;
 			_delay_ms(1000);
 		}
+		
+		#define SHUTTER_TEST_COUNT 8
+		int16_t bOffsetArray[SHUTTER_TEST_COUNT];
+		uint16_t eLagArray[SHUTTER_TEST_COUNT];
 
-		SHUTTER_OPEN;
-		clock.tare();
-
-		while(!AUX_INPUT1)
+		if(AUX_INPUT1) pass = 0;
+		for(uint8_t i = 0; i < SHUTTER_TEST_COUNT && pass; i++)
 		{
-			if(clock.eventMs() >= 1000)
-				break;
-		}
+			wdt_reset();
+			while(AUX_INPUT1)
+			{
+				if(clock.eventMs() > 1000)
+				{
+					pass = 0;
+					//menu.message(STR("1"));
+					break;
+				}
+			}
 
-		start_lag = (uint16_t)clock.eventMs();
+			if(pass) // start bulb
+			{
+				_delay_ms(1000);
+				do {
+					shutter_bulbStart();  // start bulb
+				} while(lastShutterError);
+				clock.tare();
 
-		_delay_ms(50);
+				while(!AUX_INPUT1)
+				{
+					if(clock.eventMs() > 1000)
+					{
+						pass = 0;
+						//menu.message(STR("2"));
+						break;
+					}
+				}
 
-		SHUTTER_CLOSE;
-		clock.tare();
+				start_lag = (uint16_t)clock.eventMs();
+			}
+			if(pass) // end bulb
+			{
+				shutter_bulbEnd();
+				clock.tare();
 
-		while(AUX_INPUT1)
+				while(AUX_INPUT1)
+				{
+					if(clock.eventMs() > 1000)
+					{
+						pass = 0;
+						//menu.message(STR("3"));
+						break;
+					}
+				}
+
+				end_lag = (uint16_t)clock.eventMs();
+			}		
+
+			if(pass)
+			{
+				lcd.cls();
+				menu.setTitle(TEXT("Auto Configure"));
+				lcd.writeStringTiny(2, 14, PTEXT(" Running Test...  "));
+				lcd.writeStringTiny(2, 20, PTEXT(" Waiting on Camera"));
+				menu.setBar(BLANK_STR, BLANK_STR);
+				lcd.update();
+		
+				camera.checkEvent();
+				if(camera.busy)
+				{
+					camera.checkEvent();
+					clock.tare();
+					while(camera.busy)
+					{
+						camera.checkEvent();
+						wdt_reset();
+						if(clock.eventMs() > 12000)
+						{
+							break;
+						}
+					}
+					uint16_t bGap = (uint16_t)((clock.eventMs() + 500) / 1000) + 1;
+					if(i == 0 || conf.camera.brampGap < bGap) conf.camera.brampGap = bGap;
+				}
+				_delay_ms(1000);
+			}
+
+			uint32_t bulbMinMs;
+			int8_t bulbMin;
+			// retest at bulb min
+			if(pass)
+			{
+				lcd.cls();
+				menu.setTitle(TEXT("Auto Configure"));
+				lcd.writeStringTiny(2, 14, PTEXT(" Running Test...  "));
+				lcd.writeStringTiny(2, 20, PTEXT(" Testing bulb min "));
+				menu.setBar(BLANK_STR, BLANK_STR);
+				lcd.update();
+
+				// find bulb min
+				bulbMin = camera.bulbMinStatic();
+				while((float)end_lag >= ((float)camera.bulbTime(bulbMin)) * 1.05)
+				{
+					bulbMin = camera.bulbDown(bulbMin);
+				}
+				bulbMinMs = camera.bulbTime(bulbMin) - 8;
+
+				uint32_t tmpMs;
+				do {
+					shutter_bulbStart();  // start bulb
+				} while(lastShutterError);
+				tmpMs = clock.eventMs();
+				clock.tare();
+
+				uint16_t bGap = (uint16_t)((tmpMs + 500) / 1000) + 1;
+				if(conf.camera.brampGap < bGap) conf.camera.brampGap = bGap;
+
+				while(!AUX_INPUT1)
+				{
+					if(clock.eventMs() > 1000)
+					{
+						pass = 0;
+						//menu.message(STR("4"));
+						break;
+					}
+				}
+
+				start_lag = (uint16_t)clock.eventMs();
+			}
+			if(pass) // end bulb
+			{
+				while(clock.eventMs() < bulbMinMs);
+				shutter_bulbEnd();
+				clock.tare();
+
+				while(AUX_INPUT1)
+				{
+					if(clock.eventMs() > 1000)
+					{
+						pass = 0;
+						//menu.message(STR("5"));
+						break;
+					}
+				}
+
+				end_lag = (uint16_t)clock.eventMs();
+			}
+
+			// check busy time for bramp gap
+
+			if(pass)
+			{
+				lcd.cls();
+				menu.setTitle(TEXT("Auto Configure"));
+				lcd.writeStringTiny(2, 14, PTEXT(" Running Test...  "));
+				lcd.writeStringTiny(2, 20, PTEXT(" Waiting on Camera"));
+				menu.setBar(BLANK_STR, BLANK_STR);
+				lcd.update();
+				if(camera.busy)
+				{
+					camera.checkEvent();
+					clock.tare();
+					while(camera.busy)
+					{
+						camera.checkEvent();
+						wdt_reset();
+						if(clock.eventMs() > 12000)
+						{
+							break;
+						}
+					}
+					uint16_t bGap = (uint16_t)((clock.eventMs() + 500) / 1000) + 1;
+					if(conf.camera.brampGap < bGap) conf.camera.brampGap = bGap;
+				}
+
+				if(i == 0 || conf.camera.bulbMin > bulbMin) conf.camera.bulbMin = bulbMin;
+
+				bOffsetArray[i] = (int16_t)start_lag - (int16_t)end_lag;
+			
+				eLagArray[i] = end_lag;
+			}
+			else
+			{
+				shutter_bulbEnd();
+			}
+		} // end of retry loop
+
+		int16_t tmp_offset = arrayMedian50Int(bOffsetArray, SHUTTER_TEST_COUNT);
+		if(tmp_offset < 0)
 		{
-			if(clock.eventMs() > 1000)
-				break;
+			conf.camera.negBulbOffset = 1;
+			conf.camera.bulbOffset = (uint16_t) (0 - tmp_offset);
 		}
+		else
+		{
+			conf.camera.negBulbOffset = 0;
+			conf.camera.bulbOffset = tmp_offset;
+		}
+		conf.camera.bulbEndOffset = arrayMedian50UInt(eLagArray, SHUTTER_TEST_COUNT);
 
-		end_lag = (uint16_t)clock.eventMs();
+		uint16_t eLagMax = eLagArray[0], eLagMin = eLagArray[0];
+		for(uint8_t i = 0; i < SHUTTER_TEST_COUNT && pass; i++)
+		{
+			if(eLagMax < eLagArray[i]) eLagMax = eLagArray[i];
+			if(eLagMin > eLagArray[i]) eLagMin = eLagArray[i];
+		}
+		uint16_t eRange = eLagMax - eLagMin;
+		float errorF = (float)eRange / camera.bulbTime((int8_t)conf.camera.bulbMin);
+		eRange = (uint16_t) (errorF * 100.0);
 
-		lcd.writeNumber(56, 8, start_lag, 'U', 'L');
-		lcd.writeNumber(56, 18, end_lag, 'U', 'L');
-		lcd.writeNumber(56, 28, start_lag - end_lag, 'U', 'L');
+		lcd.cls();
+		if(pass)
+		{
+			conf.camera.autoConfigured = 1;
+			settings_update();
+		
+			menu.setTitle(TEXT("Configuration"));
 
+			lcd.eraseBox(10, 8, 80, 38);
+			lcd.writeString(2,  8, PTEXT("BrampGap:"));
+			lcd.writeString(2, 18, PTEXT(" BulbMin:"));
+			lcd.writeString(2, 28, PTEXT(" Error %:"));
+
+			char buf[8];
+			camera.shutterName(buf, conf.camera.bulbMin);
+			lcd.writeString(58, 18, &buf[3]); // Bulb Length
+
+			lcd.writeNumber(58, 8, conf.camera.brampGap, 'U', 'L', false);
+			//lcd.writeNumber(58, 18, conf.camera.bulbMin, 'U', 'L', false);
+			lcd.writeNumber(58, 28, eRange, 'U', 'L', false);
+
+			menu.setBar(TEXT("Done"), TEXT("Retest"));
+		}
+		else
+		{
+			menu.setTitle(TEXT("Test Failed"));
+			lcd.writeStringTiny(2, 12,  PTEXT(" Failed to read PC"));
+			lcd.writeStringTiny(2, 18, PTEXT(" sync cable. Check"));
+			lcd.writeStringTiny(2, 24, PTEXT(" cables and try"));
+			lcd.writeStringTiny(2, 30, PTEXT(" again."));
+			//lcd.writeStringTiny(2, 32, PTEXT("                  "));
+			menu.setBar(TEXT("Cancel"), TEXT("Retest"));
+		}
 		lcd.update();
 	}
 
@@ -686,7 +940,7 @@ volatile char memoryFree(char key, char first)
 
 		lcd.cls();
 		lcd.writeString(1, 18, PTEXT("Free RAM:"));
-		/*char x =*/lcd.writeNumber(55, 18, mem, 'U', 'L');
+		/*char x =*/lcd.writeNumber(55, 18, mem, 'U', 'L',false);   //J.R.
 		//lcd.writeString(55 + x * 6, 18, PTEXT("b"));
 		menu.setTitle(TEXT("Memory"));
 		menu.setBar(TEXT("RETURN"), BLANK_STR);
@@ -751,7 +1005,7 @@ volatile char viewSeconds(char key, char first)
 	}
 
 	lcd.eraseBox(36, 18, 83, 18 + 8);
-	/*char x =*/ lcd.writeNumber(83, 18, clock.Seconds(), 'F', 'R');
+	/*char x =*/ lcd.writeNumber(83, 18, clock.Seconds(), 'F', 'R',false);  //J.R.
 	lcd.update();
 
 	switch(key)
@@ -940,7 +1194,7 @@ volatile char sysStatus(char key, char first)
 
 volatile char timerStatus(char key, char first)
 {
-	static uint8_t counter;
+	//static uint8_t counter;
 
 	if(modeRamp)
 	{
@@ -948,14 +1202,14 @@ volatile char timerStatus(char key, char first)
 	}
 	else
 	{
-		if(first)
-		{
-			counter = 0;
-		}
+		//if(first)
+		//{
+		//	counter = 0;
+		//}
 
-		if(counter++ > 3)
-		{
-			counter = 0;
+		//if(counter++ > 3)
+		//{
+			//counter = 0;
 			lcd.cls();
 
 			displayTimerStatus(0);
@@ -963,7 +1217,7 @@ volatile char timerStatus(char key, char first)
 			menu.setTitle(TEXT("Running"));
 			menu.setBar(TEXT("OPTIONS"), TEXT("STOP"));
 			lcd.update();
-		}
+		//}
 
 		if(!timer.running) return FN_CANCEL;
 
@@ -1228,6 +1482,7 @@ volatile char lightMeter(char key, char first)
 	if(first)
 	{
 		light.start();
+		light.integrationStart(1);
 		lcd.backlight(0);
 		hardware_flashlight(0);
 	}
@@ -1252,40 +1507,40 @@ volatile char lightMeter(char key, char first)
 		uint16_t val;
 		char* text;
 
-		val = (uint16_t)light.method;
-		int_to_str(val, buf);
-		text = buf;
-		l = lcd.measureStringTiny(text);
-		lcd.writeStringTiny(80 - l, 6 + SY, text);
-		lcd.writeStringTiny(3, 6 + SY, PTEXT("Method:"));
-
 		val = (uint16_t)hardware_readLight(0);
 		int_to_str(val, buf);
 		text = buf;
 		l = lcd.measureStringTiny(text);
-		lcd.writeStringTiny(80 - l, 12 + SY, text);
-		lcd.writeStringTiny(3, 12 + SY, PTEXT("Level 1:"));
+		lcd.writeStringTiny(80 - l, 6 + SY, text);
+		lcd.writeStringTiny(3, 6 + SY, PTEXT("Level 1:"));
 
 		val = (uint16_t)hardware_readLight(1);
 		int_to_str(val, buf);
 		text = buf;
 		l = lcd.measureStringTiny(text);
-		lcd.writeStringTiny(80 - l, 18 + SY, text);
-		lcd.writeStringTiny(3, 18 + SY, PTEXT("Level 2:"));
+		lcd.writeStringTiny(80 - l, 12 + SY, text);
+		lcd.writeStringTiny(3, 12 + SY, PTEXT("Level 2:"));
 
 		val = (uint16_t)hardware_readLight(2);
 		int_to_str(val, buf);
 		text = buf;
 		l = lcd.measureStringTiny(text);
-		lcd.writeStringTiny(80 - l, 24 + SY, text);
-		lcd.writeStringTiny(3, 24 + SY, PTEXT("Level 3:"));
+		lcd.writeStringTiny(80 - l, 18 + SY, text);
+		lcd.writeStringTiny(3, 18 + SY, PTEXT("Level 3:"));
 
 		val = (uint16_t)(light.readEv());
 		int_to_str(val, buf);
 		text = buf;
 		l = lcd.measureStringTiny(text);
+		lcd.writeStringTiny(80 - l, 24 + SY, text);
+		lcd.writeStringTiny(3, 24 + SY, PTEXT("    I2C:"));
+
+		val = (uint16_t)(light.slope);
+		int_to_str(val, buf);
+		text = buf;
+		l = lcd.measureStringTiny(text);
 		lcd.writeStringTiny(80 - l, 30 + SY, text);
-		lcd.writeStringTiny(3, 30 + SY, PTEXT("    I2C:"));
+		lcd.writeStringTiny(3, 30 + SY, PTEXT("Slope:"));
 
 		lcd.update();
 		_delay_ms(10);
@@ -1569,13 +1824,14 @@ volatile char focusStack(char key, char first)
 
 	if(photosTaken >= photos)
 	{
+		if(cameraMakeNikon) camera.liveView(false);	
 		menu.message(TEXT("Done!"));
 		photosTaken = 0;
 		first = 1;
 		state = 1;
 	}
 
-	if(!camera.modeLiveView)
+	if(!camera.modeLiveView && !cameraMakeNikon)
 	{
 		if(first || state > 0)
 		{
@@ -1681,7 +1937,7 @@ volatile char focusStack(char key, char first)
 			if(state == 5) lcd.drawHighlight(60, 24-4, 66, 32-4);
 			if(state == 6) lcd.drawHighlight(67, 24-4, 73, 32-4);
 
-			menu.setTitle(TEXT("Focus Stack"));
+			menu.setTitle(TEXT("Focus Stack")); // 9204:A00B
 			uint8_t len;
 			if(fine)
 			{
@@ -1719,6 +1975,8 @@ volatile char focusStack(char key, char first)
 	}
 	if(state == 7) // Running
 	{
+		if(cameraMakeNikon) camera.liveView(true);
+
 		float percent = (float) photosTaken /  (float) photos;
 		uint8_t bar = (uint8_t) (56.0 * percent) + 12;
 
@@ -1755,28 +2013,27 @@ volatile char focusStack(char key, char first)
 	{
 		if(pos != dest)
 		{
-			uint16_t move;
+			uint8_t move;
 			int16_t steps = dest - pos;
 			if(steps < 0)
 			{
 				steps = 0 - steps;
-				if(fine) move = 0x0001; else move = 0x0002;
+				if(fine) move = +1; else move = +2;
 			}
 			else
 			{
-				if(fine) move = 0x8001; else move = 0x8002;
+				if(fine) move = -1; else move = -2;
 			}
-			for(int16_t i = 0; i < steps; i++)
-			{
-				camera.moveFocus(move);
-				_delay_ms(100);
-				wdt_reset();
-			}
+			//camera.setFocus(true);
+			_delay_ms(100);
+			camera.moveFocus(move, steps);
 			pos = dest;
 		}
 
 		if(state == 7)
 		{
+			camera.setFocus(false);
+			_delay_ms(100);
 			camera.capture();
 			photosTaken++;
 			wait = 10;
@@ -1790,11 +2047,13 @@ volatile char focusStack(char key, char first)
 
 	if(key == FR_KEY && state == 7)
 	{
+		if(cameraMakeNikon) camera.liveView(false);	
 		menu.message(TEXT("Cancelled"));
 		state = 1;
 	}
 	if(key == FL_KEY && state < 7)
 	{
+		if(cameraMakeNikon) camera.liveView(false);	
 		state = 0;
 		//camera.liveView(false);
 		return FN_CANCEL;
@@ -1810,6 +2069,7 @@ volatile char focusStack(char key, char first)
  *
  ******************************************************************/
 
+NMX motor = NMX(3, 1);
 
 volatile char btConnect(char key, char first)
 {
@@ -1828,7 +2088,7 @@ volatile char btConnect(char key, char first)
 		sfirst = 0;
 
 		update = 1;
-		if(bt.state != BT_ST_CONNECTED)
+		if(bt.state != BT_ST_CONNECTED && bt.state != BT_ST_CONNECTED_NMX)
 		{
 			DEBUG(STR("BT Advertising!\r\n"));
 			bt.advertise();
@@ -1838,17 +2098,31 @@ volatile char btConnect(char key, char first)
 
 	switch(key)
 	{
+		case UP_KEY:
+			if(bt.state == BT_ST_CONNECTED_NMX)
+			{
+				motor.enable();
+				motor.moveForward();
+			}
+			break;
+		case DOWN_KEY:
+			if(bt.state == BT_ST_CONNECTED_NMX)
+			{
+				motor.enable();
+				motor.moveBackward();
+			}
+			break;
 		case LEFT_KEY:
 		case FL_KEY:
 			sfirst = 1;
-			if(bt.state != BT_ST_CONNECTED)
+			if(bt.state != BT_ST_CONNECTED && bt.state != BT_ST_CONNECTED_NMX)
 			{
 				if(conf.btMode == BT_MODE_SLEEP) bt.sleep(); else bt.advertise();
 			}
 			return FN_CANCEL;
 
 		case FR_KEY:
-			if(bt.state == BT_ST_CONNECTED)
+			if(bt.state == BT_ST_CONNECTED || bt.state == BT_ST_CONNECTED_NMX)
 			{
 				bt.disconnect();
 			}
@@ -1867,7 +2141,7 @@ volatile char btConnect(char key, char first)
 			break;
 		case BT_EVENT_SCAN_COMPLETE:
 			DEBUG(STR("done!\r\n"));
-			if(bt.state != BT_ST_CONNECTED)
+			if(bt.state != BT_ST_CONNECTED && bt.state != BT_ST_CONNECTED_NMX)
 			{
 				bt.advertise();
 				bt.scan();
@@ -1875,9 +2149,8 @@ volatile char btConnect(char key, char first)
 			break;
 		case BT_EVENT_DISCONNECT:		
 			bt.scan();
-			break;
 		default:
-			update = 0;
+			update = 1;
 	}
 
 	bt.event = BT_EVENT_NULL; // clear event so we don't process it twice
@@ -1902,7 +2175,7 @@ volatile char btConnect(char key, char first)
 	{
 		lcd.cls();
 
-		if(bt.state == BT_ST_CONNECTED)
+		if(bt.state == BT_ST_CONNECTED || bt.state == BT_ST_CONNECTED_NMX)
 		{
 			menu.setTitle(TEXT("Connect"));
 			lcd.writeStringTiny(18, 20, PTEXT("Connected!"));
@@ -1957,7 +2230,7 @@ volatile char btConnect(char key, char first)
  *
  *
  ******************************************************************/
-
+extern uint32_t modePTP;
 volatile char usbPlug(char key, char first)
 {
 	static char connected = 0;
@@ -2004,18 +2277,17 @@ volatile char usbPlug(char key, char first)
 					lcd.writeString(3, 23, PTEXT("Attempting to"));
 					lcd.writeString(3, 31, PTEXT("self-correct..."));
 					menu.setTitle(TEXT("Alert"));
-					menu.setBar(TEXT("RETURN"), TEXT("CANCEL"));
+					menu.setBar(TEXT("RETURN"), BLANK_STR);
 				}
 				else
 				{
 					lcd.writeString(3, 23, PTEXT("Unplug camera"));
 					lcd.writeString(3, 31, PTEXT("to reset...  "));
 					menu.setTitle(TEXT("Camera Info"));
-					menu.setBar(TEXT("RETURN"), BLANK_STR);
+					menu.setBar(TEXT("RETURN"), TEXT("RESET"));
+					connectUSBcamera = 1;
 				}
 				lcd.update();
-				connectUSBcamera = 1;
-
 			}
 			else if(PTP_Ready)
 			{
@@ -2034,6 +2306,15 @@ volatile char usbPlug(char key, char first)
 					lcd.writeString(3, 31, exp_name);
 					lcd.writeString(3+46, 31, PTEXT("ISO"));
 				}
+
+				//uint8_t tmp = (uint8_t) modePTP;
+				//lcd.writeCharTiny(84 - 8 + 4, 48-13, '0' + tmp % 10);
+				//tmp /= 10;
+				//lcd.writeCharTiny(84 - 8, 48-13, '0' + tmp % 10);
+
+				//tmp = camera.isInBulbMode();
+				//lcd.writeCharTiny(84 - 8 - 4, 48-13, '0' + tmp % 10);
+
 				menu.setTitle(TEXT("Camera Info"));
 				menu.setBar(TEXT("RETURN"), TEXT("PHOTO"));
 				lcd.update();
@@ -2077,32 +2358,35 @@ volatile char usbPlug(char key, char first)
 	}
 	else if(key == FR_KEY)
 	{
-		if(0)//PTP_Connected && PTP_Error && timer.running)
-		{
-			timerStop(0, 1);
-		}
-		else if(PTP_Ready)
+		if(PTP_Ready)
 		{
 			camera.capture();
+		}
+		else if(PTP_Error && !timer.running)
+		{
+			camera.resetConnection();
 		}
 	}
 	else if(key == UP_KEY)
 	{
+//		camera.setFocus(false);
 //		if(PTP_Ready) camera.moveFocus(1);
 		if(PTP_Ready) camera.setISO(camera.isoUp(camera.iso()));
-		if(PTP_Ready) camera.setShutter(camera.shutterUp(camera.shutter()));
+//		if(PTP_Ready) camera.setShutter(camera.shutterUp(camera.shutter()));
 	}
 	else if(key == DOWN_KEY)
 	{
+//		camera.setFocus(true);
 //		if(PTP_Ready) camera.moveFocus(0x8001);
 		if(PTP_Ready) camera.setISO(camera.isoDown(camera.iso()));
-		if(PTP_Ready) camera.setShutter(camera.shutterDown(camera.shutter()));
+//		if(PTP_Ready) camera.setShutter(camera.shutterDown(camera.shutter()));
 	}
 	else if(key == RIGHT_KEY)
 	{
-		remote.send(REMOTE_THUMBNAIL, REMOTE_TYPE_SEND);
-		//uint8_t *file = (uint8_t *) STR("Test file contents");
-		//camera.writeFile(STR("test.txt"), file, 19);
+		//remote.send(REMOTE_THUMBNAIL, REMOTE_TYPE_SEND);
+		uint8_t *file = (uint8_t *) STR("Test file contents");
+		char *name = STR("test.txt");
+		camera.writeFile(name, file, 19);
 	}
 
 	return FN_CONTINUE;
@@ -2238,6 +2522,7 @@ volatile char timerStop(char key, char first)
 	if(first)
 		timer.running = 0;
 
+	light.paused = 1;
 	menu.message(TEXT("Stopped"));
 	menu.back();
 	return FN_CANCEL;
@@ -2703,9 +2988,10 @@ volatile char bramp_monitor(char key, char first)
     static uint8_t rampHistory[CHART_X_SPAN], skip_message = 0;
     static uint32_t lock_time;
 
-    if(clock.Seconds() - lock_time > LOCK_AFTER)
+    if(clock.Seconds() - lock_time > LOCK_AFTER && !timer.paused && timer.status.preChecked == 0)
     {
     	light.paused = 0;
+		lcd.backlight(0);
     	lock_time = clock.Seconds();
     }
     if(key)
@@ -2714,9 +3000,8 @@ volatile char bramp_monitor(char key, char first)
     }
 
 	char buf[8];
-	first = 1;
 	uint8_t waiting = strcmp(timer.status.textStatus, STR("Delay")) == 0;
-	if(first)
+	if(timer.status.preChecked == 0)
 	{
 		lcd.cls();
 
@@ -2754,7 +3039,7 @@ volatile char bramp_monitor(char key, char first)
 		buf[3] = '\0';
 		lcd.writeString(34, 8, buf); // Battery Level
 
-		if(timer.current.brampMethod == BRAMP_METHOD_GUIDED || timer.rampRate != 0)
+		if(timer.current.brampMethod == BRAMP_METHOD_GUIDED)// || timer.rampRate != 0)
 		{
 			b = (int16_t)timer.rampRate;
 			if(b > 99) b = 99;
@@ -2823,7 +3108,10 @@ volatile char bramp_monitor(char key, char first)
 			camera.isoName(buf, camera.iso());
 			lcd.writeStringTiny(63, 2+12, &buf[2]); // ISO
 		}
-
+		if(clock.usingSync)
+		{
+			lcd.writeStringTiny(56, 2, STR("S"));
+		}
 		camera.bulbName(buf, timer.status.bulbLength);
 		lcd.writeStringTiny(63, 2+6, &buf[3]); // Bulb Length
 
@@ -2893,7 +3181,7 @@ volatile char bramp_monitor(char key, char first)
 		{
 			for(uint8_t x = 0; x < CHART_X_SPAN; x++)
 			{
-				uint16_t s = (uint16_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x);
+				uint32_t s = (uint32_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x * 60.0); //J.R.
 	            float key1 = 1, key2 = 1, key3 = 1, key4 = 1;
 	            char found = 0;
 	            uint8_t i;
@@ -2943,16 +3231,16 @@ volatile char bramp_monitor(char key, char first)
 				if(y >= 0 && y <= CHART_Y_SPAN) lcd.setPixel(x + CHART_X_TOP, CHART_Y_SPAN + CHART_Y_TOP - y);
 			}
 		}
-		else if(timer.current.brampMethod == BRAMP_METHOD_GUIDED)
+		else if(timer.current.brampMethod == BRAMP_METHOD_GUIDED || timer.current.brampMethod == BRAMP_METHOD_AUTO)
 		{
-			uint8_t x = 0;
-			uint16_t s, completedS = 0;
+			uint8_t x = 0, x2;
+			uint32_t s, completedS = 0; //J.R.
 			
 			if(!waiting)
 			{
 				for(x = 0; x < CHART_X_SPAN; x++)
 				{
-					s = (uint16_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x);
+					s = (uint32_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x * 60.0); //J.R.
 
 					if(s >= clock.Seconds()) rampHistory[x] = ((((float)timer.status.rampStops - (float)timer.status.rampMin) / (float)(timer.status.rampMax - timer.status.rampMin)) * (float)CHART_Y_SPAN);
 
@@ -2962,13 +3250,16 @@ volatile char bramp_monitor(char key, char first)
 				}
 				completedS = s;
 			}
+			x2 = x;
 			for(x++; x < CHART_X_SPAN; x++)
 			{
-				s = (uint16_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x);
+				s = (uint32_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x * 60.0); //J.R.
 
 				s -= completedS;
 
-				float futureRamp = timer.status.rampStops + ((float)timer.rampRate / 1800.0) * (float)s;
+				float futureRamp = timer.status.rampStops + ((float)timer.rampRate / (3600.0 / 3)) * (float)s;
+
+				//if(timer.current.brampMethod == BRAMP_METHOD_AUTO && futureRamp > timer.status.rampTarget) break;
 
 				int16_t y = ((((float)futureRamp - (float)timer.status.rampMin) / (float)(timer.status.rampMax - timer.status.rampMin)) * (float)CHART_Y_SPAN);
 
@@ -2977,35 +3268,17 @@ volatile char bramp_monitor(char key, char first)
 
 				lcd.setPixel(x + CHART_X_TOP, CHART_Y_SPAN + CHART_Y_TOP - y);
 			}
-		}
-		else if(timer.current.brampMethod == BRAMP_METHOD_AUTO)
-		{
-			uint8_t x = 0;
-			uint16_t s, completedS = 0;
-			if(!waiting)
-			{
-				for(x = 0; x < CHART_X_SPAN; x++)
-				{
-					s = (uint16_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x);
-
-					if(s >= clock.Seconds()) rampHistory[x] = ((((float)timer.status.rampStops - (float)timer.status.rampMin) / (float)(timer.status.rampMax - timer.status.rampMin)) * (float)CHART_Y_SPAN);
-
-		            lcd.setPixel(x + CHART_X_TOP, CHART_Y_SPAN + CHART_Y_TOP - rampHistory[x]);
-					
-					if(s >= clock.Seconds()) break; 
-				}
-				completedS = s;
-			}
-			float intSlope = 0 - light.readIntegratedSlope();
+			x = x2;
+			float intSlope = 0.0 - light.readIntegratedSlope();
 			if(timer.running)
 			{
-				for(x++; x < CHART_X_SPAN; x += timer.rampRate == 0 ? 2 : 1)
+				for(x++; x < CHART_X_SPAN; x += 2)
 				{
-					s = (uint16_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x);
+					s = (uint32_t)(((float)timer.current.Duration / (float)CHART_X_SPAN) * (float)x * 60.0); //J.R.
 
 					s -= completedS;
 
-					float futureRamp = timer.status.rampStops + ((intSlope + timer.rampRate) / 1800.0) * (float)s;
+					float futureRamp = timer.status.rampStops + ((intSlope) / (3600.0 / 3)) * (float)s;
 
 					int16_t y = ((((float)futureRamp - (float)timer.status.rampMin) / (float)(timer.status.rampMax - timer.status.rampMin)) * (float)CHART_Y_SPAN);
 
@@ -3016,13 +3289,12 @@ volatile char bramp_monitor(char key, char first)
 				}
 			}
 		}
-
 		// Progress Bar //
 		if(!waiting)
 		{
 			static float lastSec;
 			if(timer.running) lastSec = (float)clock.Seconds();
-			uint8_t x = (uint8_t)(((float)lastSec / (float)timer.current.Duration) * (float)(CHART_X_SPAN + 1));
+			uint8_t x = (uint8_t)(((float)lastSec / ((float)timer.current.Duration * 60.0)) * (float)(CHART_X_SPAN + 1));  //J.R.
 			if(x > CHART_X_SPAN + 1) x = CHART_X_SPAN + 1;
 			lcd.drawHighlight(CHART_X_TOP - 1, CHART_Y_TOP - 1, x + CHART_X_TOP, CHART_Y_BOTTOM + 1);
 		}
@@ -3063,7 +3335,29 @@ volatile char bramp_monitor(char key, char first)
 			char message_text[13];
 			if(timer.paused)
 			{
-				if(timer.pausing)
+		        if(!timer.apertureReady)
+		        {
+		        	if(key == UP_KEY)
+		        	{
+		        		timer.apertureEvShift--;
+		        	}
+		        	else if(key == DOWN_KEY)
+		        	{
+		        		timer.apertureEvShift++;
+		        	}
+		        }
+				if(timer.apertureReady || timer.apertureEvShift)
+				{
+					strcpy(message_text, STR("Aperture +/-"));
+			        uint8_t l = strlen(message_text) * 6 / 2;
+			        lcd.eraseBox(41 - l - 2, 12, 41 + l + 2, 24 + 10);
+			        lcd.drawBox(41 - l - 1, 13, 41 + l + 1, 23 + 10);
+			        lcd.writeString(41 - l, 15, message_text);
+			        stopName(message_text, (0 - timer.apertureEvShift));
+			        l = 8 * 6 / 2;
+			        lcd.writeString(41 - l, 15 + 10, message_text);
+				}
+				else if(timer.pausing)
 				{
 					strcpy(message_text, STR("Starting..."));
 			        uint8_t l = strlen(message_text) * 6 / 2;
@@ -3099,7 +3393,7 @@ volatile char bramp_monitor(char key, char first)
 		        lcd.drawBox(41 - l - 1, 13, 41 + l + 1, 23);
 		        lcd.writeString(41 - l, 15, message_text);
 			}
-			else if(conf.extendedRamp && !camera.isInBulbMode() && timer.status.bulbLength > camera.bulbTime((int8_t)camera.bulbMin()))
+			else if(camera.ready && conf.extendedRamp && !camera.isInBulbMode() && timer.status.bulbLength > camera.bulbTime((int8_t)camera.bulbMin()))
 			{
 				strcpy(message_text, STR("Turn to BULB"));
 		        uint8_t l = strlen(message_text) * 6 / 2;
@@ -3107,7 +3401,7 @@ volatile char bramp_monitor(char key, char first)
 		        lcd.drawBox(41 - l - 1, 13, 41 + l + 1, 23);
 		        lcd.writeString(41 - l, 15, message_text);
 			}
-			else if(conf.extendedRamp && camera.isInBulbMode() && timer.status.bulbLength <= camera.bulbTime((int8_t)camera.bulbMin()) - camera.bulbTime((int8_t)camera.bulbMin()) / 3)
+			else if(camera.ready && conf.extendedRamp && camera.isInBulbMode() && timer.status.bulbLength <= camera.bulbTime((int8_t)camera.bulbMin()) - camera.bulbTime((int8_t)camera.bulbMin()) / 3)
 			{
 				strcpy(message_text, STR("Turn to M"));
 		        uint8_t l = strlen(message_text) * 6 / 2;
@@ -3119,7 +3413,177 @@ volatile char bramp_monitor(char key, char first)
 
 		lcd.update();
 	}
+	else
+	{
+	    if(timer.status.preChecked == 2 && (timer.current.Mode & RAMP) && (timer.current.brampMethod == BRAMP_METHOD_AUTO))
+	    {
+			light.paused = 1;
 
+	        lcd.cls();
+	        menu.setTitle(TEXT("BRAMP TARGET"));
+	        menu.setBar(TEXT("BACK"), TEXT("START"));
+
+	        #define XALIGN 50
+	        uint8_t l;
+	        char *s;
+	        s = TEXT("Aperture:");
+	        l = lcd.measureStringTiny(s);
+	        lcd.writeStringTiny(XALIGN - l, 7, s);
+	        s = TEXT("Shutter:");
+	        l = lcd.measureStringTiny(s);
+	        lcd.writeStringTiny(XALIGN - l, 14, s);
+	        s = TEXT("ISO:");
+	        l = lcd.measureStringTiny(s);
+	        lcd.writeStringTiny(XALIGN - l, 21, s);
+	        s = TEXT("OTHER:");
+	        l = lcd.measureStringTiny(s);
+	        lcd.writeStringTiny(XALIGN - l, 28, s);
+
+	        uint32_t bulb_length;
+	        float otherEv = 0;
+
+	        if(timer.status.rampTarget > timer.status.rampMax)
+	        {
+		        bulb_length = camera.bulbTime((float)timer.current.BulbStart - timer.status.rampMax);
+		        otherEv = timer.status.rampTarget - timer.status.rampMax;
+	        }
+	        else
+	        {
+		        bulb_length = camera.bulbTime((float)timer.current.BulbStart - timer.status.rampTarget);
+	        }
+
+            uint8_t nextAperture = camera.aperture();
+            uint8_t nextISO = camera.iso();
+            int8_t evShift = 0;
+
+            timer.calculateExposure(&bulb_length, &nextAperture, &nextISO, &evShift);
+
+
+            if((conf.brampMode & BRAMP_MODE_APERTURE) && camera.supports.aperture)
+            {
+				camera.apertureName(buf, nextAperture);
+            	uint8_t b;
+				for(b = 0; b < (int16_t)sizeof(buf); b++)
+				{
+					if(buf[b] == 'f')
+					{
+						buf[b + 1] = 'f';
+						break;
+					}
+				}
+		        lcd.writeStringTiny(XALIGN + 2, 7, &buf[b + 1]); // aperture
+            }
+            else
+            {
+		        buf[0] = buf[1] = '-';
+		        buf[2] = '\0';
+		        lcd.writeStringTiny(XALIGN + 2, 7, buf); // no aperture
+            }
+
+
+			camera.bulbName(buf, bulb_length);
+	        lcd.writeStringTiny(XALIGN + 2, 14, &buf[3]); // shutter
+
+            if((conf.brampMode & BRAMP_MODE_ISO) && camera.supports.iso)
+            {
+				camera.isoName(buf, nextISO);
+		        lcd.writeStringTiny(XALIGN + 2, 21, &buf[2]); // ISO
+            }
+            else
+            {
+		        buf[0] = buf[1] = '-';
+		        buf[2] = '\0';
+		        lcd.writeStringTiny(XALIGN + 2, 21, buf); // no ISO
+            }
+	        
+	        if(otherEv != 0)
+	        {
+				float f = otherEv;
+				if(f > 0.0)
+				{
+					buf[0] = '+';
+				}
+				else if(f < 0.0)
+				{
+					f = 0.0 - f;
+					buf[0] = '-';
+				}
+				else
+				{
+					buf[0] = ' ';
+				}
+				int16_t b = (int16_t) (f * 10.0 / 3.0);
+				if(b > 999) b = 999;
+				if(b < -999) b = -999;
+				buf[4] = '0' + b % 10;
+				b /= 10;
+				buf[3] = '.';
+				buf[2] = '0' + b % 10;
+				b /= 10;
+				buf[1] = '0' + b % 10;
+				buf[5] = '\0';
+	        }
+	        else
+	        {
+		        buf[0] = buf[1] = '-';
+		        buf[2] = '\0';
+	        }
+	        lcd.writeStringTiny(XALIGN + 2, 28, buf);
+
+	        #define RSTART 1
+	        #define REND 82
+	        #define RSPAN (REND - RSTART)
+	        #define RLINE_Y 35
+
+	        uint8_t xPos;
+
+	        float chartMaxEv = ((timer.status.rampTarget > timer.status.rampMax) ? timer.status.rampTarget : timer.status.rampMax);
+	        float chartRangeEv = chartMaxEv - timer.status.rampMin;
+	        float p;
+
+	        xPos = (uint8_t) (RSPAN * ((timer.status.rampMax - timer.status.rampMin)  / chartRangeEv)) + RSTART;
+	        lcd.drawLine(RSTART + 0, RLINE_Y, xPos, RLINE_Y);
+	        lcd.setPixel(xPos, RLINE_Y + 1);
+
+	        for(uint8_t i = 0; i <= (uint8_t) chartRangeEv / 3; i++)
+	        {
+		        xPos = (uint8_t) (RSPAN * ((float) i / (chartRangeEv / 3))) + RSTART;
+		        if(xPos > RSTART) lcd.xorPixel(xPos, RLINE_Y);
+	        }
+
+	        p = (0 - timer.status.rampMin) / chartRangeEv;
+	        xPos = (uint8_t) (RSPAN * p) + RSTART;
+	        lcd.drawLine(xPos + 0, RLINE_Y + 2, xPos + 0, RLINE_Y + 4);
+	        lcd.drawLine(xPos + 1, RLINE_Y + 3, xPos + 1, RLINE_Y + 4);
+	        lcd.setPixel(xPos + 2, RLINE_Y + 4);
+
+	        p = (timer.status.rampTarget - timer.status.rampMin) / chartRangeEv;
+	        xPos = (uint8_t) (RSPAN * p) + RSTART;
+	        lcd.drawLine(xPos - 0, RLINE_Y + 2, xPos - 0, RLINE_Y + 4);
+	        lcd.drawLine(xPos - 1, RLINE_Y + 3, xPos - 1, RLINE_Y + 4);
+	        lcd.setPixel(xPos - 2, RLINE_Y + 4);
+
+	        lcd.update();
+
+	        if(key == FL_KEY)
+	        {
+				menu.push(0);
+				menu.spawn((void*)timerStop);
+				return FN_JUMP;		
+	        }
+	        else if(key == FR_KEY)
+	        {
+				light.paused = 0;
+				timer.status.preChecked = 3;	        	
+	        }
+
+	        return FN_CONTINUE;
+	    }
+	    else
+	    {
+	        timer.status.preChecked = 3;
+	    }
+	}
 
 	if(!timer.running && key != 0) skip_message = 1;
 
@@ -3132,7 +3596,7 @@ volatile char bramp_monitor(char key, char first)
 			return FN_JUMP;		
 		}
 	}
-	else if(!light.paused && key && timer.running)
+	else if(!light.paused && ((key && timer.running) || timer.paused) )
 	{
 		light.paused = 1;
 	}
@@ -3150,9 +3614,6 @@ volatile char bramp_monitor(char key, char first)
 	}
 	else if(key == FR_KEY && timer.running)
 	{
-		//menu.push();
-		//menu.spawn((void*)timerStop);
-		//return FN_JUMP;
 		if(timer.paused)
 		{
 			timer.pause(0);	
@@ -3162,15 +3623,343 @@ volatile char bramp_monitor(char key, char first)
 			timer.pause(1);	
 		}
 	}
-	else if(key == UP_KEY && timer.running && timer.current.brampMethod != BRAMP_METHOD_KEYFRAME)
+	else if(key == UP_KEY && timer.running && timer.current.brampMethod == BRAMP_METHOD_GUIDED)
 	{
 		if(timer.rampRate < 50 && (timer.status.rampStops < timer.status.rampMax || timer.rampRate < 0)) timer.rampRate++;
 	}
-	else if(key == DOWN_KEY && timer.running && timer.current.brampMethod != BRAMP_METHOD_KEYFRAME)
+	else if(key == DOWN_KEY && timer.running && timer.current.brampMethod == BRAMP_METHOD_GUIDED)
 	{
 		if(timer.rampRate > -50 && (timer.status.rampStops > timer.status.rampMin || timer.rampRate > 0)) timer.rampRate--;
 	}
 
 	return FN_CONTINUE;
+}
+
+#define CHARTBOX_X1 0
+#define CHARTBOX_Y1 12
+#define CHARTBOX_X2 83
+#define CHARTBOX_Y2 39
+
+#define CHARTBOX_HEIGHT (CHARTBOX_Y2 - CHARTBOX_Y1 - 2)
+#define CHARTBOX_WIDTH (CHARTBOX_X2 - CHARTBOX_X1 - 2)
+
+uint8_t addKeyframe(int16_t value, uint32_t seconds)
+{
+	extern keyframeGroup_t kfg;
+	if(kfg.count >= MAX_KEYFRAMES - 1) return 0; // no space left
+
+	for(uint8_t i = 0; i < kfg.count; i++)
+	{
+		if(kfg.keyframes[i].seconds >= seconds)
+		{
+			for(uint8_t j = kfg.count + 1; j > i; j--)
+			{
+				memmove(&kfg.keyframes[j], &kfg.keyframes[j - 1], sizeof(kfg.keyframes[0]));
+			}
+			kfg.keyframes[i].value = value;
+			kfg.keyframes[i].seconds = seconds;
+			kfg.count++;
+			return i + 1;
+		}
+	}
+	return 0;
+}
+uint8_t removeKeyframe(uint8_t index)
+{
+	extern keyframeGroup_t kfg;
+	if(index >= kfg.count || kfg.count <= 2 || index == 0 || index == kfg.count - 1) return 0; // the first or last can't be deleted
+
+	for(uint8_t i = index; i < kfg.count - 1; i++)
+	{
+		memmove(&kfg.keyframes[i], &kfg.keyframes[i + 1], sizeof(kfg.keyframes[0]));
+	}
+	kfg.count--;
+	return kfg.count;
+}
+
+void moveTo(int16_t pos)
+{
+	//NMX m = NMX(3, 1);
+
+	motor.enable();
+	motor.moveToPosition((int32_t) pos);
+}
+
+volatile char keyFrameEditor(char key, char first)
+{
+	extern keyframeGroup_t kfg;
+	static uint8_t cursor = 0, edit = 0;
+	button.verticalRepeat = 1;
+
+	if(first)
+	{
+		cursor = 0;
+		edit = 0;
+		kfg.count = 2;
+		kfg.selected = 0;
+		kfg.type = KFT_MOTION;
+		kfg.keyframes[0].seconds = 0;
+		kfg.keyframes[0].value = 0;
+		kfg.keyframes[1].seconds = 14400;
+		kfg.keyframes[1].value = 0;
+		kfg.max = 10000;
+		kfg.min = -10000;
+		kfg.steps = 500;
+		kfg.rangeExtendable = 1;
+		kfg.function = &moveTo;
+	}
+
+	lcd.cls();
+
+	//chart outline
+	//lcd.drawBox(CHARTBOX_X1, CHARTBOX_Y1, CHARTBOX_X2, CHARTBOX_Y2);
+	lcd.drawLine(CHARTBOX_X1, CHARTBOX_Y1, CHARTBOX_X2, CHARTBOX_Y1);
+
+	//draw cursor
+	if(edit == 0) lcd.drawLine(CHARTBOX_X1 + 1 + cursor, CHARTBOX_Y1, CHARTBOX_X1 + 1 + cursor, CHARTBOX_Y2);
+
+	//draw plot
+	uint32_t cSeconds = 0;
+	uint16_t cValue = 0;
+	for(uint8_t i = 0; i <= CHARTBOX_WIDTH; i++)
+	{
+		uint32_t seconds = (uint32_t)(((float)i / CHARTBOX_WIDTH) * (float)(kfg.keyframes[kfg.count - 1].seconds - kfg.keyframes[0].seconds)) + kfg.keyframes[0].seconds;
+		float key1 = 0, key2 = 0, key3 = 0, key4 = 0;
+		uint8_t ki = 0;
+		for(uint8_t k = 0; k < kfg.count; k++)
+		{
+			if(kfg.keyframes[k].seconds >= seconds && k > 0)
+			{
+				ki = k;
+				key1 = key2 = key3 = key4 = (float)kfg.keyframes[ki].value;
+				if(ki > 0)
+				{
+					ki--;
+					key1 = key2 = (float)kfg.keyframes[ki].value;
+				}
+				if(ki > 0)
+				{
+					ki--;
+					key1 = (float)kfg.keyframes[ki].value;
+				}
+				ki = k;
+				if(ki < kfg.count - 1)
+				{
+					ki++;
+					key4 = (float)kfg.keyframes[ki].value;
+				}
+				ki = k;
+				break;
+			}
+		}
+        uint32_t lastKFseconds = kfg.keyframes[ki > 0 ? ki - 1 : 0].seconds;
+        float t = (float)(seconds - lastKFseconds) / (float)(kfg.keyframes[ki].seconds - lastKFseconds);
+
+		float val = curve(key1, key2, key3, key4, t);
+		if(i == cursor)
+		{
+			cSeconds = seconds;
+			cValue = (uint16_t)val;
+			if(edit == 1 && kfg.selected > 0)
+			{
+				kfg.keyframes[kfg.selected - 1].seconds = cSeconds;
+			}
+		}
+		uint8_t yval = (uint8_t)(((float)kfg.max - val) / (float)(kfg.max - kfg.min) * (float)CHARTBOX_HEIGHT);
+		lcd.setPixel(CHARTBOX_X1 + 1 + i, CHARTBOX_Y1 + 1 + yval);
+	}
+
+	//draw keyframes
+	kfg.selected = 0;
+	uint8_t lastKf = 0, nextKf = 0;
+	for(uint8_t i = 0; i < kfg.count; i++)
+	{
+		uint8_t x = CHARTBOX_X1 + 1 + (uint8_t) ((float)CHARTBOX_WIDTH * ((float)kfg.keyframes[i].seconds / (float)kfg.keyframes[kfg.count - 1].seconds) + 0.5);
+		uint8_t y = CHARTBOX_Y1 + 1 + (uint8_t) ((float)CHARTBOX_HEIGHT * ((float)(kfg.max - kfg.keyframes[i].value) / (float)(kfg.max - kfg.min)));
+
+		lcd.setPixel(x, y);
+		lcd.setPixel(x, y - 1);
+		lcd.setPixel(x, y + 1);
+
+		if(CHARTBOX_X1 + 1 + cursor == x)
+		{
+			kfg.selected = i + 1;
+			lcd.clearPixel(x, y);
+			cSeconds = kfg.keyframes[i].seconds;
+			cValue = kfg.keyframes[i].value;
+		}
+
+		if(CHARTBOX_X1 + 1 + cursor <= x && lastKf == 0) lastKf = i;
+		if(CHARTBOX_X1 + 1 + cursor < x && nextKf == 0) nextKf = i + 1;
+
+	}
+
+
+	//move to position
+	if(kfg.function) (*kfg.function)(cValue);
+
+	//value at cursor
+	char buf[9];
+	int16_t tmp = cValue;
+	buf[0] = '+';
+    if(tmp < 0)
+    {
+    	tmp = 0 - tmp;
+    	buf[0] = '-';
+    }
+    buf[4] = tmp % 10 + '0';
+    tmp /= 10;
+    buf[3] = tmp % 10 + '0';
+    tmp /= 10;
+    buf[2] = tmp % 10 + '0';
+    tmp /= 10;
+    buf[1] = tmp % 10 + '0';
+    buf[5] = '\0';
+    lcd.writeStringTiny(6, 6, buf);
+
+    //cursor time
+    uint8_t h, m, s;
+    tmp = cSeconds;
+    s = (uint8_t)(tmp % 60);
+    tmp -= s;
+    tmp /= 60;
+    m = (uint8_t)(tmp % 60);
+    tmp -= m;
+    tmp /= 60;
+    h = (uint8_t)tmp;
+
+    buf[7] = s % 10 + '0';
+    s -= s % 10;
+    s /= 10;
+    buf[6] = s % 10 + '0';
+
+    buf[5] = ':';
+
+    buf[4] = m % 10 + '0';
+    m -= m % 10;
+    m /= 10;
+    buf[3] = m % 10 + '0';
+
+    buf[2] = ':';
+
+    buf[1] = h % 10 + '0';
+    h -= h % 10;
+    h /= 10;
+    buf[0] = h % 10 + '0';
+
+    buf[8] = '\0';
+
+    lcd.writeStringTiny(45, 6, buf);    
+
+    if(kfg.selected == 0)
+    {
+	    lcd.writeStringTiny(76, 6, STR("+"));
+	    lcd.drawHighlight(75, 6, 79, 10);    
+    }
+
+    menu.setTitle(TEXT("KEYFRAMES"));
+    if(edit == 1)
+    {
+	    menu.setBar(BLANK_STR, TEXT("SAVE POINT"));
+    }
+    else if(kfg.selected > 1 && kfg.selected < kfg.count)
+    {
+	    menu.setBar(TEXT("REMOVE"), TEXT("DONE"));
+    }
+    else
+    {
+	    menu.setBar(BLANK_STR, TEXT("DONE"));
+    }
+
+    lcd.update();
+
+	uint8_t lx = 0;
+	uint8_t nx = 0;
+
+	if(lastKf) lx = CHARTBOX_X1 + 1 + (uint8_t) ((float)CHARTBOX_WIDTH * ((float)kfg.keyframes[lastKf - 1].seconds / (float)kfg.keyframes[kfg.count - 1].seconds) + 0.5);
+	if(nextKf) nx = CHARTBOX_X1 + 1 + (uint8_t) ((float)CHARTBOX_WIDTH * ((float)kfg.keyframes[nextKf - 1].seconds / (float)kfg.keyframes[kfg.count - 1].seconds) + 0.5);
+
+    if(key == LEFT_KEY)
+    {
+    	uint8_t move = 0;
+    	if(edit)
+    	{
+    		if(kfg.selected > 1 && kfg.selected < kfg.count && cursor > (lx - CHARTBOX_X1 - 1)) move = 1;
+    	}
+    	else
+    	{
+    		if(lx) move = cursor - (lx - CHARTBOX_X1 - 1);
+	    	if(kfg.selected > 0) move /= 2;
+    	}
+    	if(cursor > move) cursor -= move; else cursor = 0;	
+    }
+    if(key == RIGHT_KEY)
+    {
+    	uint8_t move = 0;
+    	if(edit)
+    	{
+    		if(kfg.selected > 1 && kfg.selected < kfg.count && cursor < (nx - CHARTBOX_X1 - 1)) move = 1;
+    	}
+    	else
+    	{
+    		if(nx) move = (nx - CHARTBOX_X1 - 1) - cursor;
+	    	if(kfg.selected > 0) move /= 2;
+    	}
+    	if(cursor < CHARTBOX_WIDTH + move) cursor += move; else cursor = CHARTBOX_WIDTH;	
+    }
+    if(key == UP_KEY)
+    {
+		if(edit == 0)
+		{
+			if(kfg.selected == 0) kfg.selected = addKeyframe(cValue, cSeconds);
+			if(kfg.selected) edit = 1;
+		}    	
+		else
+		{
+			if(kfg.selected > 0)
+			{
+				if(kfg.keyframes[kfg.selected - 1].value + kfg.steps < kfg.max || kfg.rangeExtendable) kfg.keyframes[kfg.selected - 1].value += kfg.steps; else kfg.keyframes[kfg.selected - 1].value = kfg.max;
+				if(kfg.keyframes[kfg.selected - 1].value > kfg.max && kfg.rangeExtendable) kfg.max = kfg.keyframes[kfg.selected - 1].value;
+			}
+		}
+    }
+    if(key == DOWN_KEY)
+    {
+		if(edit == 0)
+		{
+			if(kfg.selected == 0) kfg.selected = addKeyframe(cValue, cSeconds);
+			if(kfg.selected) edit = 1;
+		} 	
+		else
+		{
+			if(kfg.selected > 0)
+			{
+				if(kfg.keyframes[kfg.selected - 1].value - kfg.steps > kfg.min || kfg.rangeExtendable) kfg.keyframes[kfg.selected - 1].value -= kfg.steps; else kfg.keyframes[kfg.selected - 1].value = kfg.min;
+				if(kfg.keyframes[kfg.selected - 1].value < kfg.min && kfg.rangeExtendable) kfg.min = kfg.keyframes[kfg.selected - 1].value;
+			}
+		}
+    }
+    if(key == FL_KEY)
+    {
+    	if(edit == 0 && kfg.selected > 1 && kfg.selected < kfg.count)
+    	{
+    		removeKeyframe(kfg.selected - 1);
+    		kfg.selected = 0;
+    		edit = 0;
+    	}
+    }
+    if(key == FR_KEY)
+    {
+    	if(edit == 1)
+    	{
+    		edit = 0;
+    	}
+    	else
+    	{
+	    	button.verticalRepeat = 0;
+	    	return FN_CANCEL;
+    	}
+    }
+    return FN_CONTINUE;
 }
 

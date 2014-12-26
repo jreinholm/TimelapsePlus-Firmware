@@ -8,6 +8,7 @@
  *
  */
 
+const char STR_TIME_HOURS[]PROGMEM = "hh:mm";
 const char STR_TIME[]PROGMEM = "h:mm:ss";
 const char STR_PHOTOS[]PROGMEM = "0 for inf.";
 const char STR_TIME_TENTHS[]PROGMEM = "mm:ss.s";
@@ -27,6 +28,7 @@ const char STR_FLASHLIGHT_TIME[]PROGMEM = "LED auto off time";
 
 const char STR_AUX_DISABLED[]PROGMEM = "AUX port disabled";
 const char STR_AUX_DOLLY[]PROGMEM = "between frames";
+const char STR_AUX_SYNC[]PROGMEM = "PC sync input";
 const char STR_AUX_IR[]PROGMEM = "IR signal out";
 
 const char STR_CAMERA_FPS[]PROGMEM = "Frames per Second";
@@ -64,6 +66,7 @@ const char STR_BRAMP_METHOD_GUIDED[]PROGMEM = "Manually Guided";
 const char STR_BRAMP_METHOD_AUTO[]PROGMEM = "Based on Light";
 const char STR_AUTO_BRAMP_INTEGRATION[]PROGMEM = "Light Average";
 const char STR_BRAMP_TARGET[]PROGMEM = "Darkest Point";
+const char STR_BRAMP_TARGET_CUSTOM[]PROGMEM = "Custom night exp";
 
 const char STR_AUTO_RUN_ON[]PROGMEM = "Auto-run TL on pwr";
 const char STR_AUTO_RUN_OFF[]PROGMEM = "Normal Operation";
@@ -73,24 +76,15 @@ const char STR_MAX_ISO[]PROGMEM = "Maximum ISO Ramp";
 const char STR_MAX_APERTURE[]PROGMEM = "Max Aperture Ramp";
 const char STR_MIN_APERTURE[]PROGMEM = "Min Aperture Ramp";
 
+const char STR_NIGHT_SHUTTER[]PROGMEM = "Night Shutter";
+const char STR_NIGHT_ISO[]PROGMEM = "Night ISO";
+const char STR_NIGHT_APERTURE[]PROGMEM = "Night Aperture";
+
 const char STR_INTERVAL_MODE_FIXED[]PROGMEM = "Fixed Interval";
 const char STR_INTERVAL_MODE_VARIABLE[]PROGMEM = "Variable Interval";
 
-const menu_item menu_options[]PROGMEM =
-{
-    { "Stop Timer  ", 'F', (void*)&timerStop, 0, 0, (void*)&timer.running },
-    { "Remote Info ", 'F', (void*)&timerStatusRemote, 0, 0, (void*)&showRemoteInfo },
-    { "Start Remote", 'F', (void*)&timerRemoteStart, 0, 0, (void*)&showRemoteStart },
-    { "Add Keyframe", 'F', (void*)&shutter_addKeyframe, 0, 0, (void*)&modeRampKeyAdd },
-    { "Del Keyframe", 'F', (void*)&shutter_removeKeyframe, 0, 0, (void*)&modeRampKeyDel },
-//    { "View Details", 'F', (void*)&viewSeconds, 0, 0, 0 },
-    { "Load Saved..", 'F', (void*)&shutter_load, 0, 0, (void*)&timerNotRunning },
-    { "Save As..   ", 'F', (void*)&shutter_saveAs, 0, 0, 0 },
-    { "Save        ", 'F', (void*)&timerSaveCurrent, 0, 0, (void*)&timer.currentId },
-    { "Save Default", 'F', (void*)&timerSaveDefault, 0, 0, 0 },
-    { "Revert      ", 'F', (void*)&timerRevert, 0, 0, (void*)&timerNotRunning },
-    { "\0OPTIONS\0   ", 'F', (void*)&menuBack, (void*)STR_RETURN, 0, (void*)STR_NULL }
-};
+const char STR_TUNING[]PROGMEM = "PID Multiplier";
+const char STR_THRESHOLD[]PROGMEM = "Dark Value";
 
 
 const settings_item settings_timer_mode[]PROGMEM =
@@ -116,10 +110,14 @@ const settings_item settings_bramp_method[]PROGMEM =
 const settings_item settings_bramp_target[]PROGMEM =
 {
     { "Automatic   ", BRAMP_TARGET_AUTO, (void*)STR_BRAMP_TARGET },
-    { "Milky Way   ", BRAMP_TARGET_STARS, (void*)STR_BRAMP_TARGET },
-    { "Half Moon   ", BRAMP_TARGET_HALFMOON, (void *) STR_BRAMP_TARGET },
-    { "Full Moon   ", BRAMP_TARGET_FULLMOON, (void*)STR_BRAMP_TARGET },
-    { "City Lights ", BRAMP_TARGET_CITYLIGHTS, (void*)STR_BRAMP_TARGET },
+    { "Milky Way-6 ", BRAMP_TARGET_OFFSET - 6, (void*)STR_BRAMP_TARGET },
+    { "Dim  Moon-5 ", BRAMP_TARGET_OFFSET - 3, (void*)STR_BRAMP_TARGET },
+    { "Half Moon-4 ", BRAMP_TARGET_OFFSET - 0, (void *) STR_BRAMP_TARGET },
+    { "Full Moon-3 ", BRAMP_TARGET_OFFSET + 3, (void*)STR_BRAMP_TARGET },
+    { "CityLight-2 ", BRAMP_TARGET_OFFSET + 6, (void*)STR_BRAMP_TARGET },
+    { "Bright   -1 ", BRAMP_TARGET_OFFSET + 9, (void*)STR_BRAMP_TARGET },
+    { "Brighter  0 ", BRAMP_TARGET_OFFSET + 12, (void*)STR_BRAMP_TARGET },
+    { "Custom Exp  ", BRAMP_TARGET_CUSTOM, (void*)STR_BRAMP_TARGET_CUSTOM },
     { "\0           ", 0, 0 }
 };
 
@@ -175,10 +173,34 @@ const settings_item settings_interval_mode[]PROGMEM =
     { "\0           ", 0, 0 }
 };
 
+const dynamicItem_t dyn_night_iso PROGMEM =
+{
+    (void*)PTP::isoUp,
+    (void*)PTP::isoDown,
+    (void*)PTP::isoName,
+    (void*)STR_NIGHT_ISO
+};
+
+const dynamicItem_t dyn_night_aperture PROGMEM =
+{
+    (void*)PTP::apertureUp,
+    (void*)PTP::apertureDown,
+    (void*)PTP::apertureName,
+    (void*)STR_NIGHT_APERTURE
+};
+
+const dynamicItem_t dyn_night_shutter PROGMEM =
+{
+    (void*)rampTvUp,
+    (void*)rampTvDown,
+    (void*)PTP::shutterName,
+    (void*)STR_NIGHT_SHUTTER
+};
+
 const dynamicItem_t dyn_tv PROGMEM =
 {
-    (void*)PTP::shutterUp,
-    (void*)PTP::shutterDown,
+    (void*)tvUp,
+    (void*)tvDown,
     (void*)PTP::shutterName,
     (void*)STR_TV
 };
@@ -263,12 +285,19 @@ const dynamicItem_t dyn_hdr_exps PROGMEM =
     (void*)STR_HDR_EXPOSURES
 };
 
+const menu_item menu_timelapse_night_exp[]PROGMEM =
+{
+    { "Shutter    +", 'D', (void*)&dyn_night_shutter, (void*)&timer.current.nightShutter, 0, 0 },
+    { "ISO        +", 'D', (void*)&dyn_night_iso, (void*)&timer.current.nightISO, 0, (void*)&rampISO },
+    { "Aperture   +", 'D', (void*)&dyn_night_aperture, (void*)&timer.current.nightAperture, 0, (void*)&rampAperture },
+    { "\0           ", 'V', 0, 0, 0 }
+};
 const menu_item menu_timelapse[]PROGMEM =
 {
     { "Mode       *", 'S', (void*)settings_timer_mode, (void*)&timer.current.Mode, 0, 0 },
     { "Method     *", 'S', (void*)settings_bramp_method, (void*)&timer.current.brampMethod, 0, (void*)&modeRamp },
     { "Delay      T", 'E', (void*)&timer.current.Delay, (void*)STR_TIME, 0, 0 },
-    { "Length     T", 'E', (void*)&timer.current.Duration, (void*)STR_TIME, 0, (void*)&modeRamp },
+    { "Length     H", 'E', (void*)&timer.current.Duration, (void*)STR_TIME_HOURS, 0, (void*)&modeRamp },
     { "Frames     U", 'E', (void*)&timer.current.Photos, (void*)STR_PHOTOS, 0, (void*)&modeNoRamp },
     { "Intrvl Mode ", 'S', (void*)settings_interval_mode, (void*)&timer.current.IntervalMode, 0, (void*)&modeRamp },
     { "Intrvl     F", 'E', (void*)&timer.current.Gap, (void*)STR_TIME_TENTHS, 0, (void*)&showGap },
@@ -282,8 +311,8 @@ const menu_item menu_timelapse[]PROGMEM =
     { "Bracket    +", 'D', (void*)&dyn_bracket,            (void*)&timer.current.Bracket, 0, (void*)&modeHDR },
     { "StartTv    +", 'D', (void*)&dyn_bulb, (void*)&timer.current.BulbStart, 0, (void*)&modeRampNormal },
     { "StartTv    +", 'D', (void*)&dyn_ramp_ext, (void*)&timer.current.BulbStart, 0, (void*)&modeRampExtended },
-    { "Integration ", 'S', (void*)settings_auto_bramp_integration, (void*)&timer.current.Integration, 0, (void*)&brampAuto },
-//    { "Night Sky   ", 'S', (void*)settings_bramp_target, (void*)&timer.current.NightSky, 0, (void*)&brampAuto },
+    { "Night Target", 'S', (void*)settings_bramp_target, (void*)&timer.current.nightMode, 0, (void*)&brampAuto },
+    { "  Night Exp ", 'M', (void*)menu_timelapse_night_exp, 0, 0, (void*)&rampTargetCustom },
     { "-By        T", 'E', (void*)&timer.current.Key[0], (void*)STR_TIME_SINCE_START, 0, (void*)&brampKeyframe },
     { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[0], 0, (void*)&brampKeyframe },
     { "-By        T", 'E', (void*)&timer.current.Key[1], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb1 },
@@ -294,21 +323,19 @@ const menu_item menu_timelapse[]PROGMEM =
     { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[3], 0, (void*)&bulb3 },
     { "-By        T", 'E', (void*)&timer.current.Key[4], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb4 },
     { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[4], 0, (void*)&bulb4 },
+    { "-By        T", 'E', (void*)&timer.current.Key[5], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb5 },
+    { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[5], 0, (void*)&bulb5 },
+    { "-By        T", 'E', (void*)&timer.current.Key[6], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb6 },
+    { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[6], 0, (void*)&bulb6 },
+    { "-By        T", 'E', (void*)&timer.current.Key[7], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb7 },
+    { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[7], 0, (void*)&bulb7 },
+    { "-By        T", 'E', (void*)&timer.current.Key[8], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb8 },
+    { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[8], 0, (void*)&bulb8 },
+    { "-By        T", 'E', (void*)&timer.current.Key[9], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb9 },
+    { "  Ramp     +", 'D', (void*)&dyn_stops, (void*)&timer.current.Bulb[9], 0, (void*)&bulb9 },
     { "\0           ", 'F', (void*)&runHandler, (void*)STR_OPTIONS, 0, (void*)STR_RUN }
 };
 
-//    { "Shutter    F", 'E', (void*)&timer.current.Exp, (void*)STR_TIME_TENTHS, 0, (void*)&modeStandard },
-/*
-    { "Bulb 1     F", 'E', (void*)&timer.current.Bulb[0], (void*)STR_TIME_TENTHS, 0, (void*)&modeRamp },
-    { "*Key       T", 'E', (void*)&timer.current.Key[0], (void*)STR_TIME_SINCE_START, 0, (void*)&modeRamp },
-    { "Bulb 2     F", 'E', (void*)&timer.current.Bulb[1], (void*)STR_TIME_TENTHS, 0, (void*)&modeRamp },
-    { "*Key       T", 'E', (void*)&timer.current.Key[1], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb1 },
-    { "Bulb 3     F", 'E', (void*)&timer.current.Bulb[2], (void*)STR_TIME_TENTHS, 0, (void*)&bulb1 },
-    { "*Key       T", 'E', (void*)&timer.current.Key[2], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb2 },
-    { "Bulb 4     F", 'E', (void*)&timer.current.Bulb[3], (void*)STR_TIME_TENTHS, 0, (void*)&bulb2 },
-    { "*Key       T", 'E', (void*)&timer.current.Key[3], (void*)STR_TIME_SINCE_START, 0, (void*)&bulb3 },
-    { "Bulb 5     F", 'E', (void*)&timer.current.Bulb[4], (void*)STR_TIME_TENTHS, 0, (void*)&bulb3 },
-*/
 const menu_item menu_trigger[]PROGMEM =
 {
     { "Cable Remote", 'F', (void*)cableRelease, 0, 0, (void*)&timerNotRunning },
@@ -340,7 +367,7 @@ const menu_item menu_timelapse_options[]PROGMEM =
 const menu_item menu_connect[]PROGMEM =
 {
     { "Bluetooth   ", 'F', (void*)btConnect, 0, 0, &bt.present },
-    { "USB         ", 'F', (void*)usbPlug, 0, 0, (void*)&timerNotRunning },
+    { "USB         ", 'F', (void*)usbPlug, 0, 0, 0 },
     { "\0           ", 'V', 0, 0, 0 }
 };
 
@@ -417,9 +444,9 @@ const settings_item menu_settings_aux_port[]PROGMEM =
 {
     { "Disabled    ", AUX_MODE_DISABLED, (void*)STR_AUX_DISABLED },
     { "Dolly Out   ", AUX_MODE_DOLLY, (void*)STR_AUX_DOLLY },
+    { "PC Sync In  ", AUX_MODE_SYNC, (void*)STR_AUX_SYNC },
     { "IR Out      ", AUX_MODE_IR, (void*)STR_AUX_IR },
 //    { "2nd Camera  ", 60, (void*)STR_AUX_DOLLY },
-//    { "PC Sync In  ", 60, (void*)STR_AUX_DOLLY },
     { "\0           ", 0, 0 }
 };
 
@@ -453,6 +480,16 @@ const settings_item menu_settings_interface[]PROGMEM =
     { "USB Only    ", INTERFACE_USB, (void*)STR_INTERFACE },
     { "Cable Only  ", INTERFACE_CABLE, (void*)STR_INTERFACE },
     { "IR Only     ", INTERFACE_IR, (void*)STR_INTERFACE },
+    { "\0           ", 0, 0 }
+};
+
+const char STR_NIKON_USB_CAPTURE[]PROGMEM = "Nikon Prop Code";
+const char STR_GENERIC_USB_CAPTURE[]PROGMEM = "Standard PTP Code";
+
+const settings_item menu_settings_nikon_usb_capture[]PROGMEM =
+{
+    { "Nikon       ", 0, (void*)STR_NIKON_USB_CAPTURE },
+    { "Generic PTP ", 1, (void*)STR_GENERIC_USB_CAPTURE },
     { "\0           ", 0, 0 }
 };
 
@@ -508,6 +545,15 @@ const settings_item menu_settings_menu_wrap[]PROGMEM =
     { "\0           ", 0, 0 }
 };
 
+const char STR_INTERPOLATION[]PROGMEM = "KF Interpolation";
+
+const settings_item menu_settings_interpolation[]PROGMEM =
+{
+    { "Spline      ", 0, (void*)STR_INTERPOLATION },
+    { "Linear      ", 1, (void*)STR_INTERPOLATION },
+    { "\0           ", 0, 0 }
+};
+
 const settings_item menu_settings_flashlight_time[]PROGMEM =
 {
     { "10 Minutes  ", 60, (void*)STR_FLASHLIGHT_TIME },
@@ -550,6 +596,39 @@ const settings_item menu_settings_lcd_contrast[]PROGMEM =
     { "\0           ", 0, 0 }
 };
 
+const char STR_ERROR_ALERT1[]PROGMEM = "Flash LCD only";
+const char STR_ERROR_ALERT2[]PROGMEM = "Flash LCD + Light";
+const char STR_ERROR_ALERT3[]PROGMEM = "No Flashing Lights";
+const settings_item menu_settings_error_alert[]PROGMEM =
+{
+    { "Backlight   ", 0x0, (void*)STR_ERROR_ALERT1 },
+    { "Flashlight  ", 0x1, (void*)STR_ERROR_ALERT2 },
+    { "Disabled    ", 0x2, (void*)STR_ERROR_ALERT3 },
+    { "\0           ", 0, 0 }
+};
+
+const char STR_BRAMP_PAD[]PROGMEM = "Intrvl - Bulb";
+const char STR_BRAMP_RATE_MAX[]PROGMEM = "Max Ramp Rate";
+const char STR_BRAMP_RATE_MIN[]PROGMEM = "Min Ramp Rate";
+const char STR_BRAMP_RATE_FACTOR[]PROGMEM = "Rate Multiplier";
+
+const settings_item menu_settings_bramp_factor[]PROGMEM =
+{
+    { "        0.5 ", 5, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        0.7 ", 7, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        1.0 ", 10, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        1.3 ", 13, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        1.5 ", 15, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        2.0 ", 20, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        2.5 ", 25, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        3.0 ", 30, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        4.0 ", 40, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        5.5 ", 55, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        7.0 ", 70, (void*)STR_BRAMP_RATE_FACTOR },
+    { "        9.0 ", 90, (void*)STR_BRAMP_RATE_FACTOR },
+    { "\0           ", 0, 0 }
+};
+
 const menu_item menu_settings_system[]PROGMEM =
 {
     { "System Name ", 'F', (void*)system_name, 0, 0, 0 },
@@ -565,19 +644,33 @@ const menu_item menu_settings_display[]PROGMEM =
     { "BackLt Color", 'S', (void*)menu_settings_lcd_color, (void*)&conf.lcdColor, (void*)settings_update, 0 },
     { "BackLt Time ", 'S', (void*)menu_settings_backlight_time, (void*)&conf.lcdBacklightTime, (void*)settings_update, 0 },
     { "LCD Contrast", 'S', (void*)menu_settings_lcd_contrast, (void*)&conf.lcdContrast, (void*)settings_update, 0 },
+    { "Error Alert ", 'S', (void*)menu_settings_error_alert, (void*)&conf.errorAlert, (void*)settings_update, 0 },
     { "\0           ", 'V', 0, 0, 0 }
 };
 
 const menu_item menu_settings_camera[]PROGMEM =
 {
-    { "Camera Make ", 'S', (void*)menu_settings_camera_make, (void*)&conf.cameraMake, (void*)settings_update, 0 },
-    { "Camera FPS  ", 'S', (void*)menu_settings_camera_fps, (void*)&conf.cameraFPS, (void*)settings_update, 0 },
-    { "Bulb Mode   ", 'S', (void*)menu_settings_bulb_mode, (void*)&conf.bulbMode, (void*)settings_update, 0 },
-    { "Bulb Offset ", 'C', (void*)&conf.bulbOffset, (void*)STR_BULB_OFFSET, (void*)settings_update, 0 },
-    { "Bulb Min    ", 'D', (void*)&dyn_min_bulb, (void*)&conf.bulbMin, (void*)settings_update, 0 },
-    { "Half press  ", 'S', (void*)menu_settings_half_press, (void*)&conf.halfPress, (void*)settings_update, 0 },
-    { "Interface   ", 'S', (void*)menu_settings_interface, (void*)&conf.interface, (void*)settings_update, 0 },
-    { "Mode Switch ", 'S', (void*)menu_settings_mode_switch, (void*)&conf.modeSwitch, (void*)settings_update, 0 },
+    { "Camera Make ", 'S', (void*)menu_settings_camera_make, (void*)&conf.camera.cameraMake, (void*)settings_update, 0 },
+    { "Run Autoconf", 'F', (void*)autoConfigureCameraTiming, 0, 0, (void*)&timerNotRunning },
+    { "Nikon USB   ", 'S', (void*)menu_settings_nikon_usb_capture, (void*)&conf.camera.nikonUSB, (void*)settings_update, (void*)&cameraMakeNikon },
+    { "Camera FPS  ", 'S', (void*)menu_settings_camera_fps, (void*)&conf.camera.cameraFPS, (void*)settings_update, 0 },
+    { "Bulb Mode   ", 'S', (void*)menu_settings_bulb_mode, (void*)&conf.camera.bulbMode, (void*)settings_update, 0 },
+    { "-Bulb Offset", 'C', (void*)&conf.camera.bulbOffset, (void*)STR_BULB_OFFSET, (void*)settings_update, 0 },
+    { "Bulb Min    ", 'D', (void*)&dyn_min_bulb, (void*)&conf.camera.bulbMin, (void*)settings_update, 0 },
+    { "Half press  ", 'S', (void*)menu_settings_half_press, (void*)&conf.camera.halfPress, (void*)settings_update, 0 },
+    { "Interface   ", 'S', (void*)menu_settings_interface, (void*)&conf.camera.interface, (void*)settings_update, 0 },
+    { "Mode Switch ", 'S', (void*)menu_settings_mode_switch, (void*)&conf.camera.modeSwitch, (void*)settings_update, 0 },
+    { "Bramp Pad   ", 'C', (void*)&conf.camera.brampGap, (void*)STR_BRAMP_PAD, (void*)settings_update, 0 },
+    { "\0           ", 'V', 0, 0, 0 }
+};
+
+const menu_item menu_settings_timelapse_tuning[]PROGMEM =
+{
+    { "Integration ", 'S', (void*)settings_auto_bramp_integration, (void*)&conf.lightIntegrationMinutes, (void*)settings_update, 0 },
+    { "Threshold   ", 'C', (void*)&conf.lightThreshold,            (void*)STR_THRESHOLD, (void*)settings_update, 0 },
+    { "P Tune     F", 'E', (void*)&conf.pFactor,                   (void*)STR_TUNING,                    (void*)settings_update, 0 },
+    { "I Tune     F", 'E', (void*)&conf.iFactor,                   (void*)STR_TUNING,                    (void*)settings_update, 0 },
+    { "D Tune     F", 'E', (void*)&conf.dFactor,                   (void*)STR_TUNING,                    (void*)settings_update, 0 },
     { "\0           ", 'V', 0, 0, 0 }
 };
 
@@ -588,15 +681,18 @@ const menu_item menu_settings_timelapse[]PROGMEM =
     { "Aperture Min", 'D', (void*)&dyn_min_aperture, (void*)&conf.apertureMin, (void*)settings_update, 0 },
     { "Bramp Mode  ", 'S', (void*)menu_settings_bramp_mode, (void*)&conf.brampMode, (void*)settings_update, 0 },
     { "Ext Bramp   ", 'S', (void*)menu_settings_bramp_extended, (void*)&conf.extendedRamp, (void*)settings_update, 0 },
+    { "Keyframes   ", 'S', (void*)menu_settings_interpolation, (void*)&conf.linearInterpolation, (void*)settings_update, 0 },
     { "Bulb Units  ", 'S', (void*)menu_settings_arbitrary_bulb, (void*)&conf.arbitraryBulb, (void*)settings_update, 0 },
     { "Run on PwrOn", 'S', (void*)menu_settings_auto_run, (void*)&conf.autoRun, (void*)settings_update, 0 },
+    { "Bramp Tuning", 'M', (void*)menu_settings_timelapse_tuning, 0, 0, 0 },
     { "\0           ", 'V', 0, 0, 0 }
 };
 
 const menu_item menu_settings_auxiliary[]PROGMEM =
 {
     { "AUX Port    ", 'S', (void*)menu_settings_aux_port, (void*)&conf.auxPort, (void*)settings_update, 0 },
-    { "Dolly Pulse ", 'C', (void*)&conf.dollyPulse, (void*)STR_DOLLY_PULSE, (void*)settings_update, &conf.auxPort },
+    { "Dolly Pulse1", 'C', (void*)&conf.dollyPulse, (void*)STR_DOLLY_PULSE, (void*)settings_update, &conf.auxPort },
+    { "Dolly Pulse2", 'C', (void*)&conf.dollyPulse2, (void*)STR_DOLLY_PULSE, (void*)settings_update, &conf.auxPort },
     { "BT Default  ", 'S', (void*)menu_settings_bt_default, (void*)&conf.btMode, (void*)settings_update, &bt.present },
     { "\0           ", 'V', 0, 0, 0 }
 };
@@ -605,13 +701,11 @@ const menu_item menu_development[]PROGMEM =
 {
     { "Dev Mode LED", 'S', (void*)menu_settings_dev_mode, (void*)&conf.devMode, (void*)settings_update, 0 },
     { "Debug Mode  ", 'S', (void*)menu_settings_debug_mode, (void*)&conf.debugEnabled, (void*)settings_update, 0 },
+    { "KeyframeEdit", 'F', (void*)keyFrameEditor, 0, 0, 0 },
     { "Shutter Test", 'F', (void*)shutterTest, 0, 0, (void*)&timerNotRunning },
-    { "Calc BOffset", 'F', (void*)shutterLagTest, 0, 0, (void*)&timerNotRunning },
 #ifdef PRODUCTION
     { "4 Hour Light", 'F', (void*)lightTest, 0, 0, (void*)&timerNotRunning },
 #endif
-    { "Sys Status  ", 'F', (void*)sysStatus, 0, 0, 0 },
-    { "Battery     ", 'F', (void*)batteryStatus, 0, 0, 0 },
     { "Light Meter ", 'F', (void*)lightMeter, 0, 0, (void*)&timerNotRunning },
 //    { "BT Flood    ", 'F', (void*)btFloodTest, 0, 0, 0 },
     { "Reset All   ", 'F', (void*)factoryReset, 0, 0, (void*)&timerNotRunning },
@@ -641,5 +735,22 @@ const menu_item menu_main[]PROGMEM =
     { "Settings    ", 'M', (void*)menu_settings, 0, 0, 0 },
     { "Power Off   ", 'F', (void*)hardware_off, 0, 0, (void*)&timerNotRunning },
     { "\0           ", 'V', 0, 0, 0 }
+};
+
+const menu_item menu_options[]PROGMEM =
+{
+    { "Stop Timer  ", 'F', (void*)&timerStop, 0, 0, (void*)&timer.running },
+    { "Remote Info ", 'F', (void*)&timerStatusRemote, 0, 0, (void*)&showRemoteInfo },
+    { "Start Remote", 'F', (void*)&timerRemoteStart, 0, 0, (void*)&showRemoteStart },
+    { "Add Keyframe", 'F', (void*)&shutter_addKeyframe, 0, 0, (void*)&modeRampKeyAdd },
+    { "Del Keyframe", 'F', (void*)&shutter_removeKeyframe, 0, 0, (void*)&modeRampKeyDel },
+//    { "View Details", 'F', (void*)&viewSeconds, 0, 0, 0 },
+    { "Load Saved..", 'F', (void*)&shutter_load, 0, 0, (void*)&timerNotRunning },
+    { "Save As..   ", 'F', (void*)&shutter_saveAs, 0, 0, 0 },
+    { "Save        ", 'F', (void*)&timerSaveCurrent, 0, 0, (void*)&timer.currentId },
+    { "Save Default", 'F', (void*)&timerSaveDefault, 0, 0, 0 },
+    { "Revert      ", 'F', (void*)&timerRevert, 0, 0, (void*)&timerNotRunning },
+    { "Settings    ", 'M', (void*)menu_settings_timelapse, 0, 0, 0 },
+    { "\0OPTIONS\0   ", 'F', (void*)&menuBack, (void*)STR_RETURN, 0, (void*)STR_NULL }
 };
 

@@ -11,17 +11,21 @@
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include "clock.h"
 #include "button.h"
 #include "5110LCD.h"
 #include "hardware.h"
+#include "shutter.h"
 #include "settings.h"
 #include "debug.h"
+#include "light.h"
 
 
 extern LCD lcd;
 extern Button button;
-extern settings conf;
+extern settings_t conf;
+extern Light light;
 
 /******************************************************************
  *
@@ -86,44 +90,78 @@ void Clock::disable()
  *
  *
  ******************************************************************/
-
+uint8_t skips = 0;
 volatile void Clock::count()
 {
     ms++;
     event_ms++;
 
+    if(newBulb)
+    {
+        if(conf.auxPort == AUX_MODE_SYNC && !AUX_INPUT1)
+        {
+            if(bulbDuration > conf.camera.bulbEndOffset) bulbDurationPCsync = bulbDuration - conf.camera.bulbEndOffset; else bulbDurationPCsync = 0;
+        }
+        else
+        {
+            bulbDurationPCsync = 0;
+        }
+        shutter_bulbStart();
+        newBulb = 0;
+        bulbRunning = 1;
+        if(conf.camera.negBulbOffset)
+        {
+            bulbDuration -= conf.camera.bulbOffset;
+        }
+        else
+        {
+            bulbDuration += conf.camera.bulbOffset;
+        }
+        skips++;
+        return;
+    }
+    else if(bulbRunning)
+    {
+        bulbDuration--;
+        if(bulbDuration <= 0)
+        {
+            shutter_bulbEnd();
+            bulbRunning = 0;
+            light.skipTask = 0;
+            if(conf.auxPort == AUX_MODE_SYNC && bulbDurationPCsync == 0) usingSync = 1; else usingSync = 0;
+            skips++;
+            return;
+        }
+        else if(bulbDurationPCsync && AUX_INPUT1)
+        {
+            bulbDuration = bulbDurationPCsync;
+            bulbDurationPCsync = 0;
+            skips++;
+            return;
+        }
+    }
+
+    for(uint8_t i = 0; i < CLOCK_IN_QUEUE; i++)
+    {
+        if(inTime[i] > 0)
+        {
+            inTime[i] -= 1 + skips;
+            if(inTime[i] <= 0)
+            {
+                (*inFunction[i])();
+            }
+        }
+    }
+
     if(ms >= 1000)
     {
-        ms = 0;
+        ms -= 1000;
         seconds++;
         sleep_time++;
         light_time++;
         flashlight_time++;
     }
-    if(inTime > 0)
-    {
-        inTime--;
-        if(inTime <= 0)
-        {
-            (*inFunction)();
-        }
-    }
-    if(newJob)
-    {
-        if(jobStart) (*jobStart)();
-        newJob = 0;
-        jobRunning = 1;
-    }
-    else if(jobRunning)
-    {
-        jobDuration--;
-        if(jobDuration <= 0)
-        {
-            if(jobComplete) (*jobComplete)();
-            jobRunning = 0;
-        }
-
-    }
+    skips = 0;
 }
 
 /******************************************************************
@@ -150,8 +188,9 @@ void Clock::reset()
     event_ms = 0;
     seconds = 0;
     ms = 0;
-    jobRunning = 0;
-    newJob = 0;
+    bulbRunning = 0;
+    newBulb = 0;
+    usingSync = 0;
 }
 
 /******************************************************************
@@ -293,34 +332,33 @@ uint8_t Clock::slept()
 
 /******************************************************************
  *
- *   Clock::job
+ *   Clock::bulb
  *
  *
  ******************************************************************/
 
-void Clock::job(void (*startFunction)(), void (*endFunction)(), uint32_t duration)
+void Clock::bulb(uint32_t duration)
 {
-    jobRunning = 0;
-    jobStart = startFunction;
-    jobComplete = endFunction;
-    jobDuration = duration;
-    newJob = 1;
+    if(conf.auxPort == AUX_MODE_SYNC) ENABLE_AUX_PORT1;
+    light.skipTask = 1; // don't read I2C during timing
+    bulbRunning = 0;
+    bulbDuration = duration;
+    newBulb = 1;
 }
 
 /******************************************************************
  *
- *   Clock::cancelJob
+ *   Clock::cancelBulb
  *
  *
  ******************************************************************/
 
-void Clock::cancelJob()
+void Clock::cancelBulb()
 {
-    jobRunning = 0;
-    jobStart = 0;
-    jobComplete = 0;
-    jobDuration = 0;
-    newJob = 0;
+    light.skipTask = 0;
+    bulbRunning = 0;
+    bulbDuration = 0;
+    newBulb = 0;
 }
 
 /******************************************************************
@@ -332,8 +370,15 @@ void Clock::cancelJob()
 
 void Clock::in(uint16_t stime, void (*func)())
 {
-    inFunction = func;   
-    inTime = stime;
+    for(uint8_t i = 0; i < CLOCK_IN_QUEUE; i++)
+    {
+        if(inTime[i] <= 0)
+        {
+            inFunction[i] = func;
+            inTime[i] = stime;
+            break;
+        }
+    }
 }
 
 /******************************************************************

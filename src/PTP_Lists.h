@@ -97,7 +97,11 @@ const propertyDescription_t PTP_Shutter_List[] PROGMEM = {
 const propertyDescription_t PTP_ISO_List[] PROGMEM = {
     {"  Error", 0xFF, 0x000000FF, 255 },
     {"   Auto", 0x00, 0x00000000, 254 },
+    {"     32", 0x3b, 32, 48 },
+    {"     40", 0x3d, 40, 47 },
     {"     50", 0x40, 50, 46 },
+    {"     64", 0x43, 64, 45 },
+    {"     80", 0x45, 80, 44 },
     {"    100", 0x48, 100, 43 },
     {"    125", 0x4b, 125, 42 },
     {"    160", 0x4d, 160, 41 },
@@ -162,6 +166,11 @@ const propertyDescription_t PTP_ISO_List[] PROGMEM = {
 
 const bulbSettings_t Bulb_List[] PROGMEM = {
     {" Camera", 0,  254 },
+    {"   1/60", 15, 61 },
+    {"   1/50", 19, 60 },
+    {"   1/40", 25, 59 },
+    {"   1/30", 31, 58 },
+    {"   1/25", 39, 57 },
     {"   1/20", 49, 56 },
     {"   1/15", 62, 55 },
     {"   1/13", 79, 54 },

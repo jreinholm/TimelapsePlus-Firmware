@@ -22,7 +22,7 @@
 #include "hardware.h"
 
 extern Clock clock;
-extern settings conf;
+extern settings_t conf;
 
 /******************************************************************
  *
@@ -307,7 +307,7 @@ void MENU::init(menu_item *newmenu)
                     var = &val;
                 }
                 
-                if(type != 'C') var_len = lcd->writeNumber(2 + MENU_NAME_LEN * 6, 8 + 9 * menuSize - menuScroll, *var, c, 'R');
+                if(type != 'C') var_len = lcd->writeNumber(2 + MENU_NAME_LEN * 6, 8 + 9 * menuSize - menuScroll, *var, c, 'R',false);  //J.R. 2-27-14
             }
 
             if(type == 'S' && c == '*') // Display setting selection in place of menu text
@@ -334,18 +334,27 @@ void MENU::init(menu_item *newmenu)
             } 
             else
             {
+				uint8_t n = 0; 								//J.R. 11-25-14         
                 for(uint8_t b = 0; b < MENU_NAME_LEN - 1; b++) // Write menu item text //
                 {
                     if((type != 'E' && type != 'P') || b < MENU_NAME_LEN - var_len - 1)
                     {
                         ch = pgm_read_byte(&menu[i].name[b]);
+                        if(b == 0 && ch == '-') continue;   //J.R. 11-25-14 
+                        n++;  								//J.R. 11-25-14 
                         if(ch == '+') continue;
-                        lcd->writeChar(2 + b * 6, 8 + 9 * menuSize - menuScroll, ch);
+                        lcd->writeChar(2 + n * 6, 8 + 9 * menuSize - menuScroll, ch);  //J.R. 11-25-14 
                     }
                 }
                 if(type == 'M')
                 {
                   lcd->writeChar(2 + (MENU_NAME_LEN - 1) * 6, 8 + 9 * menuSize - menuScroll, '>');
+                }
+                ch = pgm_read_byte(&menu[i].name[MENU_NAME_LEN - 2]);                                             
+                if(type == 'C' && (ch == 'M' || ch == 'N'))  //Correction for Bramp Min-Max J.R. 11-25-14 
+                {
+                  //lcd->writeChar(2 + (MENU_NAME_LEN - 2) * 6, 8 + 9 * menuSize - menuScroll, '*');
+                  lcd->eraseBox(2 + (MENU_NAME_LEN - 2) * 6, 8 + 9 * menuSize - menuScroll, 8 + (MENU_NAME_LEN - 2) * 6, 16 + 9 * menuSize - menuScroll);  //J.R.  
                 }
             }
             
@@ -624,15 +633,16 @@ void MENU::click()
 
                    uint8_t b = 0, i = 0;
 
-                   while(b < MENU_NAME_LEN - 3)
+                   while(b < MENU_NAME_LEN - 1)		//J.R.
                    {
                        name[b] = pgm_read_byte(&menu[index].name[i]);
                        i++;
                        if(b == 0 && (name[b] == ' ' || name[b] == '-')) continue;
 
-                       if(name[b] == ' ') 
+                       if(name[b] == ' ' && b > 8) //J.R. 3-7-14
                            break;
-
+                       if(name[b] == ' ' && name[b-1] == ' ') //J.R. 8-21-14
+						   {name[b-1] = '\0'; break;  }                                                   
                        b++;
                    }
                    
@@ -671,15 +681,16 @@ void MENU::click()
            case 'D': // Dynamic Settings List Variable
                uint8_t b = 0, i = 0;
                
-               while(b < MENU_NAME_LEN - 2)
+               while(b < MENU_NAME_LEN - 1)
                {
                    name[b] = pgm_read_byte(&menu[index].name[i]);
                    i++;
                    if(b == 0 && (name[b] == ' ' || name[b] == '-')) continue;
 
-                   if(name[b] == ' ') 
+                   if(name[b] == ' ' && b > 8) //J.R. 5-30-14
                        break;
-                   
+                   if(name[b] == ' ' && name[b-1] == ' ') //J.R. 8-21-14
+						{name[b-1] = '\0'; break;  }                     
                    b++;
                }
                
@@ -926,6 +937,7 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
         lcd->writeString(80 - l * 6, 32, unit);
 
         l = strlen(name);
+        if(l > 11) {l = 11; *(name + 11) = '\0';}	//J.R. 8-21-14
         x = 42 - ((l * 6) >> 1);
         lcd->drawHighlight(0, 31, 83, 39); // bottom //
 
@@ -952,7 +964,7 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                d[2] = c;
 
                // minutes //
-               c = m % 600;
+               c = m % 60;
                d[3] = c % 10;
                c -= d[3]; c /= 10;
                d[4] = c;
@@ -978,6 +990,22 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                m -= (unsigned int)c; m /= 60;
                d[4] = c % 10;
                break;
+               
+           case 'H':  	  //  Added case for hh:mm time frame - J.R.
+
+               // minutes //
+               c = m % 60;
+               m -= (unsigned int)c; m /= 60;
+               d[0] = c % 10;
+               c -= d[0]; c /= 10;
+               d[1] = c;
+
+               // hours //
+               c = m % 100;
+               d[2] = c % 10;
+               c -= d[2]; c /= 10;
+               d[3] = c;
+               break;              
 
            default:
                l = 0;
@@ -1004,8 +1032,7 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
         for(x = 0; x < l; x++)
         {
             lcd->writeCharBig(67 - x * 16, 7, d[x] + '0');
-        }
-        
+        }      
         switch(mode)
         {
            case 'F': // Float (4.1) //
@@ -1021,6 +1048,15 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                 lcd->drawBox(68 - 3 * 16 - 3, 12, 68 - 3 * 16 - 2, 14);
                 lcd->drawBox(68 - 3 * 16 - 3, 20, 68 - 3 * 16 - 2, 22);
                 break;
+                
+           case 'H': // Time (hours)//
+                lcd->drawBox(68 - 1 * 16 - 3, 12, 68 - 1 * 16 - 2, 14); // Colon (:) //
+                lcd->drawBox(68 - 1 * 16 - 3, 20, 68 - 1 * 16 - 2, 22);
+                break;
+           
+           case 't': // negative number J.R.//
+				lcd->eraseBox(67 - 3 * 16, 8, 67 - 2 * 16, 30);
+				if(conf.camera.negBulbOffset) lcd->writeCharBig(67 - 3 * 16, 7, '-');              
         }
 
         lcd->drawHighlight(68 - (i * 16) - 1, 8, 68 - (i * 16) + 12, 29);
@@ -1041,6 +1077,42 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                    t = 9;
                break;
                
+           case 'H':		//  Added case for hh:mm
+				   l = 4;
+               if(i == 1) 
+                   t = 5;
+               else				   
+                   t = 9;
+               break;
+           case 'N':
+           case 'M':		//J.R. Added case for Bramp Max/Min
+				   l = 2;
+			   if(i == 1)
+			   {
+				   if(mode == 'N') t = 2; 	//case = 'N'  - Bramp Min	
+				   else 		   t = 5;	//case = 'M'  - Bramp Max
+				   if(d[1] == 5 && mode == 'M') d[0] = 0;		
+				   if(d[1] == 2 && mode == 'N') d[0] = 0;
+			   }
+			   else
+			   {
+				   t = 9; 
+				   if(d[0] == 1 && d[1] == 5 && mode == 'M') d[1] = 0;		
+				   if(d[0] == 1 && d[1] == 2 && mode == 'N') d[1] = 0;
+				   if(d[0] == 9 && d[1] == 5 && mode == 'M') d[1] = 4;		
+				   if(d[0] == 9 && d[1] == 2 && mode == 'N') d[1] = 1;		   
+				}	    			   										   
+			   break;
+			   
+           case 't':		//  Added case for Bulb Offset  J.R.
+				   l = 4;
+               if(i == 3) 
+                   t = 0;
+               else				   
+                   t = 9;
+               break;			   
+			   			   
+			   
            default:
                if(i == 4) 
                    t = 5;
@@ -1087,6 +1159,12 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                        d[i] = 0;
                    break;
             }
+            if(mode == 't' && i == 3)   //J.R.
+				if(key == UP_KEY || key == DOWN_KEY)
+				{
+					if(conf.camera.negBulbOffset) conf.camera.negBulbOffset = 0;
+					else conf.camera.negBulbOffset = 1;
+				}
         }
     } else
     {
@@ -1109,6 +1187,22 @@ char MENU::editNumber(char key, unsigned int *n, char *name, char *unit, char mo
                DEBUG_NL();
                break;
                
+		   case 'H':		//  Added case for hh:mm
+                m += (d[3] * 10 + d[2]) * 60; // hours
+                m += d[1] * 10 + d[0]; // minutes
+                DEBUG(m);
+                DEBUG_NL();
+                break; 
+                
+           case 't':		//  Added case for Bulb Offset  J.R.
+                m = d[2];
+                m *= 10;
+                m += d[1];
+                m *= 10;
+                m += d[0];
+                break;	                
+                            
+                             
            default:
                 m = d[4];
                 m *= 10;
@@ -1216,9 +1310,13 @@ void MENU::menu_push(void *item_addr, char selection, uint8_t type)
         DEBUG(STR("PUSH: "));
         DEBUG(stack_counter);
         if(type == 1)
+        {
           DEBUG(STR(" (function)\r\n"));
+        }
         else
+        {
           DEBUG(STR(" (menu)\r\n"));
+        }
     }
     else
     {
@@ -1683,26 +1781,29 @@ char MENU::waitingAlert()
 
 void MENU::blink()
 {
-  uint8_t bl = lcd->getBacklight();
-  lcd->backlight(255);
-  hardware_flashlight(1);
-  _delay_ms(100);
-  lcd->backlight(0);
-  hardware_flashlight(0);
-  _delay_ms(100);
-  lcd->backlight(255);
-  hardware_flashlight(1);
-  _delay_ms(100);
-  lcd->backlight(0);
-  hardware_flashlight(0);
-  _delay_ms(100);
-  lcd->backlight(255);
-  hardware_flashlight(1);
-  _delay_ms(100);
-  lcd->backlight(0);
-  hardware_flashlight(0);
-  _delay_ms(100);
+  if(conf.errorAlert != ERROR_ALERT_DISABLED)
+  {
+    uint8_t bl = lcd->getBacklight();
+    lcd->backlight(255);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(1);
+    _delay_ms(100);
+    lcd->backlight(0);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(0);
+    _delay_ms(100);
+    lcd->backlight(255);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(1);
+    _delay_ms(100);
+    lcd->backlight(0);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(0);
+    _delay_ms(100);
+    lcd->backlight(255);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(1);
+    _delay_ms(100);
+    lcd->backlight(0);
+    if(conf.errorAlert == ERROR_ALERT_FLASHLIGHT) hardware_flashlight(0);
+    _delay_ms(100);
+    lcd->backlight(bl);
+  }
 
-  lcd->backlight(bl);
 }
 
